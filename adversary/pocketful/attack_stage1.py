@@ -262,6 +262,8 @@ class Attacks(unittest.TestCase):
         self.reset((initial, 1000000000, 0, 0))
         self.assertEqual(self.post("/payments", {"to_handle": "bob", "amount": 1000000000}, key="max")[0], 201)
         self.assertEqual(self.balances(), [initial - 1000000000, 2000000000, 0, 0])
+        self.reset((2 ** 53, 0, 0, 0))
+        self.assertEqual(self.balances(), [2 ** 53, 0, 0, 0])
 
     def test_request_short_then_funded_paid_and_privacy(self):
         self.require(2)

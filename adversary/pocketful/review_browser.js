@@ -117,6 +117,20 @@ async function run() {
         assert.equal(writes[before].key, writes[before + 1].key);
         assert.equal(await page.locator('[data-testid^="activity-item-"]').count(), 1);
       });
+      const large = fixture();
+      large.users[0].balance = 2 ** 53 - 1;
+      await call("/_test/reset", large);
+      await signIn(page);
+      await check("maximum safe wallet amount fits the viewport", async () => {
+        const sizes = await page.evaluate(() => ({ content: document.documentElement.scrollWidth, viewport: document.documentElement.clientWidth }));
+        assert.ok(sizes.content <= sizes.viewport, JSON.stringify(sizes));
+      });
+      large.users[0].balance = 2 ** 53;
+      await call("/_test/reset", large);
+      await check("inclusive 2^53 wallet balance renders", async () => {
+        await signIn(page);
+        assert.equal(await page.locator(selector("wallet-balance")).textContent(), "90071992547409.92 EUR");
+      });
       await context.close();
     }
   } finally { await browser.close(); }

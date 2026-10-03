@@ -82,6 +82,7 @@ async function run() {
     assert.deepEqual(submissions[0], submissions[1]);
   });
   await check("empty committed-payment receipt is uncertain", () => assert.equal(core.classify(201, "").kind, "uncertain"));
+  await check("upper inclusive wallet balance formats exactly", () => assert.equal(core.formatAmount(2 ** 53, 2, "EUR"), "90071992547409.92 EUR"));
   await check("null committed-payment receipt is uncertain", () => assert.equal(core.classify(201, "null").kind, "uncertain"));
   await check("raw pay amount edit mints a new identity", () => {
     let serial = 0;

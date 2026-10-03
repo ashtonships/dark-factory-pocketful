@@ -49,6 +49,8 @@ No uncommitted Builder-Two changes are used. Failure exits on these revisions ar
 
 - PF-A1: empty/null 201 payment receipt is classified `ok`; rendering dereferences null and fails to show uncertainty.
 - PF-A2: raw amount text `15` → `15.00` produces an identical normalized body and incorrectly retains intent identity.
+- PF-A3: the inclusive permitted wallet boundary `2^53` is rejected by the client's `Number.isSafeInteger` check.
+- PF-A4: a legal large balance at `2^53 - 1` produces a 500px-wide page at the required 375px viewport.
 
 ## Mutation measurements
 
@@ -64,3 +66,9 @@ temporary browser profiles containing test sessions off the SSD. These are Build
 W-5/W-6 test command yet. Dev-only stub and test scripts are excluded from mutation, not from execution.
 Reports live on the SSD and contain source diffs/check output only. The syntax-valid catch-rate denominator
 does not establish that every survivor is a fault in a required behavior; survivor triage is mandatory.
+
+The initial W-5 sample at `77595cc` killed 13/20 syntax-valid mutants (65%, seed 5). Seven survivors were
+triaged: one demonstrates a missing crypto-fallback uniqueness check; others alter unspecified copy,
+forbidden-input handling or equivalent behavior. The W-6 seed-6 attempt at `73beaa0` did not get past the
+unmodified browser baseline within 120 seconds. Its score is `null`, with zero scored mutants; that is not
+a 0% score or a demonstrated service failure.
