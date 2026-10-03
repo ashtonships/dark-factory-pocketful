@@ -69,6 +69,14 @@ quotes” (the quote is what `tools/spec_coverage.py` matches). `N/A:` lines are
 
 ## Findings (added as they arrive)
 
+Adversary pre-mortem for stage 1 (Sat 3 Oct). These five risks are entries; checks and attacks assert state after failed operations and across imports, not codes alone.
+
+9004. “The sum of wallet balances always equals the total seeded by the last `POST /_test/reset`.” — pre-mortem 1 · W-2, W-4 · Money writes, request-state changes and receipt inserts share one transaction under 50 competing calls (also entries 10, 11).
+9005. “For concurrent identical requests with an unused key, exactly one returns 201.” — pre-mortem 2 · W-2 · Key scope, canonical JSON, replay precedence and no caching of failed keys, including simultaneous first use and retries after pay/cancel (entries 131–148).
+9006. “Reserve 400 `malformed_request` for a body that does not parse or a field of the wrong type.” — pre-mortem 3 · W-1 · No float/bool coercion, note length in code points, strict query-integer grammar, keep-alive body consumption (9001–9003).
+9007. “A share of `0` is legal and still produces a request for that participant.” — pre-mortem 4 · W-3 · Zero shares, caller omitted, remainder allocation by order; conservation holds after zero requests are paid.
+9008. “Either all movements commit together or none do; failed validation claims no idempotency key and creates no payment or revision.” — pre-mortem 5 · W-4 · Settlements atomic, not sequential; export/import keeps tokens, operator permissions and original replay receipts.
+
 ## Stage 1 entries
 N/A: “This stage defines the initial service and its API.” — stage-1.md line 3: stage introduction, no behaviour
 2. “Build from the supplied requirements.” — stage-1.md:5 · W-1
