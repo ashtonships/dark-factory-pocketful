@@ -84,7 +84,7 @@ def test_order_moves_extra_unit(api, seeded):
 
 
 def test_zero_share_creates_request(api, seeded):
-    # ledger: 229
+    # ledger: 229, 9007
     r = split(seeded["ada"], 1, ["ada", "bob", "cy"])
     assert [(q["payer_handle"], q["amount"]) for q in r.json["requests"]] == [("bob", 0), ("cy", 0)]
 

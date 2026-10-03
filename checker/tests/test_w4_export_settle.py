@@ -201,7 +201,7 @@ def test_net_affordability(api, ops):
 
 
 def test_insufficient_collective_all_or_nothing(api, ops):
-    # ledger: 264, 265, 10
+    # ledger: 264, 265, 10, 9008
     k = key()
     bad = [{"from_handle": "ada", "to_handle": "bob", "amount": 100},
            {"from_handle": "cy", "to_handle": "ada", "amount": 1}]

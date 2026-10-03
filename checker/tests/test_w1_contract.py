@@ -253,7 +253,7 @@ def test_password_not_stored_plaintext_in_export(api):
 @pytest.mark.parametrize("raw", ["{", "[1, 2]", "\"str\"", "42", "null", "",
                                  '{"email": NaN}', '{"email": Infinity}', '{"email": -Infinity}'])
 def test_unparseable_or_non_object_400(api, seeded, raw):
-    # ledger: 95, 111, 9003
+    # ledger: 95, 111, 9003, 9006
     r = api.req("POST", "/auth/login", raw=raw)
     assert is_error(r, 400, "malformed_request"), r
 
