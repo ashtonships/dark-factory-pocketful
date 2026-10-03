@@ -1,0 +1,23 @@
+#!/usr/bin/env python3
+"""Refuse any update of main that changes a stage-N/ tree without a green gate receipt for
+that exact tree. Git runs this for every ref transaction (commit, merge, fast-forward, reset,
+branch -f, update-ref), so no path onto main skips it. Other refs pass untouched.
+Installed by `tools/gate.py install-hook`."""
+import os
+import sys
+
+state = sys.argv[1] if len(sys.argv) > 1 else ""
+lines = sys.stdin.read().splitlines()
+touches_main = any(l.split()[2:3] == ["refs/heads/main"] for l in lines)
+if state != "prepared" or not touches_main:
+    sys.exit(0)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
+try:
+    import gate
+    sys.exit(gate.hook_main(state, lines))
+except SystemExit:
+    raise
+except Exception as exc:  # fail closed, on main only
+    print(f"GATE REFUSED: the gate hook could not decide ({exc.__class__.__name__}: {exc}); "
+          f"main is unchanged. Run python3 tools/gate.py verify to see why.", file=sys.stderr)
+    sys.exit(1)

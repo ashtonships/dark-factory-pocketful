@@ -1,0 +1,10 @@
+{
+  "track": "pocketful",
+  "harness_dir": "/Users/ashton/DarkFactory/dark-factory-wearedevs",
+  "python": "/Users/ashton/DarkFactory/dark-factory-wearedevs/.venv/bin/python",
+  "spec": "/Users/ashton/DarkFactory/kickoff-specs/pocketful/spec",
+  "shipped_tests": "/Users/ashton/DarkFactory/dark-factory-wearedevs/pocketful/test",
+  "checks_out": "/Users/ashton/DarkFactory/band-work/checks/pf-a",
+  "checker_command": ["{python}", "{checks}/checker/run_checks.py", "--repo", "{checkout}", "--stage", "{stage}", "--out", "{out}/checker"],
+  "overfit_allow": []
+}
