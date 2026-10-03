@@ -34,6 +34,28 @@ The sum/nonnegativity assertions cover every completed attack and each sequentia
 Independent `/me` calls are not falsely treated as one atomic multi-wallet read during concurrent writes.
 Export contents are opaque; no private storage schema is assumed.
 
+For a bounded source-review reproduction without using another seat's tests:
+
+```sh
+/Users/ashton/DarkFactory/tools/with-check-lock python3.12 adversary/pocketful/review_api.py /Users/ashton/DarkFactory/band-work/pf-a --revision ca640ffc9a88bc59770f6d9383b761b3453db528
+```
+
+This runner archives pinned product sources, imports them in an isolated interpreter, starts a loopback
+server and runs the retained W-1/W-2 HTTP attacks. Its database stays in an internal `/tmp` directory,
+not on the SSD. Four additional deterministic barriers pause an authenticated payment/request-pay/
+request-cancel before reset, or pause `/me` between user and metadata reads. All four barriers pass
+at `ca640ffc`: stale writes return 401 without receipts or movements; an in-flight read returns one
+coherent pre-reset snapshot and subsequent reads reject the old token. This instrumentation changes
+only the isolated test process, never product files.
+
+The full in-process HTTP suite is not passing acceptance evidence: the initial host Python 3.14 run
+has 11 passing cases, 2 client timeouts and 3 future-item skips; a Python 3.12 repeat has 2 passing
+cases, 13 timeout errors and 1 skip. These run the client and server in the same host interpreter,
+not in the specified resource-limited Docker deployment. No timeout was weakened or hidden, and no
+product cause has been established. The 50-way different-key and credit-overflow probes are retained
+for an isolated container reproduction; the already reported source review does not claim runtime
+or latency acceptance.
+
 ## Client review reproductions
 
 ```sh
@@ -91,3 +113,10 @@ triaged: one demonstrates a missing crypto-fallback uniqueness check; others alt
 forbidden-input handling or equivalent behavior. The W-6 seed-6 attempt at `73beaa0` did not get past the
 unmodified browser baseline within 120 seconds. Its score is `null`, with zero scored mutants; that is not
 a 0% score or a demonstrated service failure.
+
+At `93f3606`, W-6 seed 6 requested 20 mutations but stopped with `environment_unstable` after
+10 syntax-valid candidates (9 killed, 1 survivor). A control baseline failed a 10-second navigation
+waiting for the document `load` event. The official catch rate remains `null`; 9/10 is not a
+publishable coverage score. Survivor 2 only changes the pluralization of an unspecified precision
+error message, not a required behavior. The report is
+`/Volumes/SSD/overflow/darkfactory/pf-w6-93f3606-mutants.json`.

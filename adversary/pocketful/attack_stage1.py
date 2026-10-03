@@ -265,6 +265,29 @@ class Attacks(unittest.TestCase):
         self.reset((2 ** 53, 0, 0, 0))
         self.assertEqual(self.balances(), [2 ** 53, 0, 0, 0])
 
+    def test_concurrent_different_keys_pay_once(self):
+        self.require(2)
+        status, request = self.post("/requests", {"payer_handle": "ada", "amount": 100}, handle="bob", key="new-request")
+        self.assertEqual(status, 201)
+        path = "/requests/" + request["request_id"] + "/pay"
+        results = self.many([lambda index=index: self.post(path, {}, key="pay-" + str(index)) for index in range(50)])
+        self.assertEqual(sum(status == 201 for status, result in results), 1)
+        for status, result in results:
+            if status != 201:
+                self.error((status, result), 409, "request_not_pending")
+        self.assertEqual(self.balances(), [9900, 2600, 0, 0])
+        self.assertEqual(len(self.feed()), 1)
+
+    def test_overflow_failure_preserves_wallets_feed_and_failed_key(self):
+        self.require(2)
+        self.reset((10, 2 ** 53, 0, 0))
+        self.error(self.post("/payments", {"to_handle": "bob", "amount": 1}, key="overflow"), 422, "validation_failed")
+        self.assertEqual(self.balances(), [10, 2 ** 53, 0, 0])
+        self.assertEqual(self.feed(), [])
+        self.assertEqual(self.post("/payments", {"to_handle": "cy", "amount": 1}, key="overflow")[0], 201)
+        self.assertEqual(self.balances(), [9, 2 ** 53, 1, 0])
+        self.assertEqual(len(self.feed()), 1)
+
     def test_request_short_then_funded_paid_and_privacy(self):
         self.require(2)
         status, request = self.post("/requests", {"payer_handle": "cy", "amount": 10}, handle="bob", key="request")
