@@ -288,6 +288,9 @@ class PocketfulHandler(BaseHTTPRequestHandler):
                 if path == "/requests":
                     self.idempotent(db, user, path, body, self.create_request)
                     return
+                if path == "/splits":
+                    self.idempotent(db, user, path, body, self.create_split)
+                    return
                 if action and action.group(2) == "pay":
                     self.idempotent(db, user, path, body, lambda db, user, body: self.pay_request(db, user, body, action.group(1)))
                     return
@@ -428,6 +431,48 @@ class PocketfulHandler(BaseHTTPRequestHandler):
             updated = db.execute("SELECT * FROM requests WHERE id = ?", (request_id,)).fetchone()
             result = request_body(db, updated)
         self.send_json(200, result)
+
+    def create_split(self, db, user, body):
+        participants = body.get("participant_handles")
+        if "participant_handles" not in body:
+            validation("Missing participants")
+        if not isinstance(participants, list):
+            malformed("Participants must be an array")
+        if any(not isinstance(handle, str) for handle in participants):
+            malformed("Participant handles must be strings")
+        value = amount(body)
+        split_note = note(body)
+        if not participants or len(set(participants)) != len(participants):
+            validation("Participants must be nonempty and unique")
+        if any(not HANDLE_PATTERN.fullmatch(handle) for handle in participants):
+            validation("Invalid handle")
+        targets = []
+        for handle in participants:
+            target = db.execute("SELECT * FROM users WHERE handle = ?", (handle,)).fetchone()
+            if target is None:
+                raise APIError(404, "not_found")
+            targets.append(target)
+        quotient, remainder = divmod(value, len(participants))
+        created_at = timestamp()
+        shares = []
+        requests = []
+        for index, target in enumerate(targets):
+            share = quotient + (1 if index < remainder else 0)
+            shares.append({"handle": target["handle"], "amount": share})
+            if target["id"] != user["id"]:
+                request_id = new_id("rq_")
+                db.execute(
+                    "INSERT INTO requests(id, requester_id, payer_id, amount, note, status, payment_id, created_at) VALUES(?, ?, ?, ?, ?, 'pending', NULL, ?)",
+                    (request_id, user["id"], target["id"], share, split_note, created_at),
+                )
+                requests.append(request_body(db, db.execute("SELECT * FROM requests WHERE id = ?", (request_id,)).fetchone()))
+        split_id = new_id("sp_")
+        db.execute(
+            "INSERT INTO splits(id, creator_id, amount, note, shares_json, request_ids_json, created_at) VALUES(?, ?, ?, ?, ?, ?, ?)",
+            (split_id, user["id"], value, split_note, json.dumps(shares), json.dumps([request["request_id"] for request in requests]), created_at),
+        )
+        return {"split_id": split_id, "amount": value, "currency": get_meta(db)["currency"], "note": split_note,
+                "shares": shares, "requests": requests, "created_at": created_at}
 
     def list_requests(self, db, user):
         query, limit, offset = self.pagination()
