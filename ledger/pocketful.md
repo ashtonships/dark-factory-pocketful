@@ -47,6 +47,11 @@ quotes” (the quote is what `tools/spec_coverage.py` matches). `N/A:` lines are
   `authorization_not_open` (status captured/voided/expired) → 409 `authorization_expired` (stored open, clock past
   expiry) → 422 `capture_exceeds_authorization`. Reason: the remainder only exists for an open authorisation.
 
+- **D-15 Split participants**: when the caller omits their own handle, they are not a participant: the shares cover
+  exactly the listed handles in the order given, and every listed handle gets a request. Reason: §8 fixes shares
+  "in the order given" and §9 gives remainders "to the first participants in participant_handles order"; an
+  implicit caller would need a position the request never states.
+
 ## Work items (stage 1)
 
 | Item | Seat | Entries | Scope |
