@@ -81,6 +81,14 @@ async function run() {
     assert.equal(form.uncertain, null);
     assert.deepEqual(submissions[0], submissions[1]);
   });
+  await check("Web Crypto fallback preserves distinct entropy inputs", () => {
+    let byte = 0;
+    const cryptoSandbox = { module: { exports: {} }, crypto: { getRandomValues: bytes => { bytes.fill(byte); return bytes; } } };
+    vm.runInNewContext(source, cryptoSandbox);
+    const first = cryptoSandbox.module.exports.newKey();
+    byte = 17;
+    assert.notEqual(first, cryptoSandbox.module.exports.newKey());
+  });
   await check("empty committed-payment receipt is uncertain", () => assert.equal(core.classify(201, "").kind, "uncertain"));
   await check("upper inclusive wallet balance formats exactly", () => assert.equal(core.formatAmount(2 ** 53, 2, "EUR"), "90071992547409.92 EUR"));
   await check("null committed-payment receipt is uncertain", () => assert.equal(core.classify(201, "null").kind, "uncertain"));
