@@ -24,7 +24,7 @@ def main():
         if archive.wait() != 0:
             raise SystemExit("Pinned source archive failed")
         command = ["python3", "tools/seeded_faults.py", "--product", str(Path(directory) / "ui-core"), "--count", "20", "--seed", str(args.item), "--timeout", "120", "--build-command", "node --check pocketful-core.js", "--exclude", "selftest.js", "--exclude", "devstub.py", "--exclude", "browser-drill.js", "--exclude", "run-drill.sh", "--test-command"]
-        command += ["node", "selftest.js"] if args.item == 5 else ["sh", "run-drill.sh"]
+        command += ["node", "selftest.js"] if args.item == 5 else ["python3", str(Path(__file__).with_name("browser_measure.py"))]
         env = dict(os.environ, TMPDIR=directory, PW_MODULES="/Volumes/SSD/overflow/darkfactory/b2-pw/node_modules")
         result = subprocess.run(command, cwd=root, env=env, capture_output=True, text=True)
         report = overflow / f"pf-w{args.item}-{args.revision}-mutants.json"

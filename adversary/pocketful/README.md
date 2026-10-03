@@ -59,7 +59,8 @@ No uncommitted Builder-Two changes are used. Failure exits on these revisions ar
 
 These invoke `tools/seeded_faults.py --product <pinned ui-core copy> --count 20 --seed <item>` with
 `--build-command "node --check pocketful-core.js"`. W-5 uses `--test-command node selftest.js`; W-6 uses
-`--test-command sh run-drill.sh`. These are Builder-Two's tests, not Checker's: Checker explicitly has no
+`--test-command python3 <absolute-path>/browser_measure.py`, which invokes `sh run-drill.sh` while keeping
+temporary browser profiles containing test sessions off the SSD. These are Builder-Two's tests, not Checker's: Checker explicitly has no
 W-5/W-6 test command yet. Dev-only stub and test scripts are excluded from mutation, not from execution.
 Reports live on the SSD and contain source diffs/check output only. The syntax-valid catch-rate denominator
 does not establish that every survivor is a fault in a required behavior; survivor triage is mandatory.
