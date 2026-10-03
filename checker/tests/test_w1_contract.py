@@ -116,6 +116,18 @@ def test_large_balances_exact(api):
     assert api.session("ada@example.com").balance() == big
 
 
+def test_balance_exactly_2_pow_53(api):
+    # ledger: 80, 81, 9011 (the +-2^53 range is inclusive)
+    top = 2 ** 53
+    fx = base_fixture(payments=[], requests=[])
+    fx["users"][0]["balance"] = top
+    r = api.req("POST", "/_test/reset", body=fx)
+    assert r.status == 204, r
+    me = api.session("ada@example.com").me()
+    assert me.status == 200 and me.json["balance"] == top and type(me.json["balance"]) is int, me
+    assert '"balance":9007199254740992' in me.text.replace(" ", ""), me.text
+
+
 # ---------------------------------------------------------------- conventions
 
 def test_json_content_type_on_success_and_error(api, seeded):
