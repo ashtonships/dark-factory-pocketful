@@ -47,6 +47,11 @@ quotes” (the quote is what `tools/spec_coverage.py` matches). `N/A:` lines are
   `authorization_not_open` (status captured/voided/expired) → 409 `authorization_expired` (stored open, clock past
   expiry) → 422 `capture_exceeds_authorization`. Reason: the remainder only exists for an open authorisation.
 
+- **D-15 Split participants**: when the caller omits their own handle, they are not a participant: the shares cover
+  exactly the listed handles in the order given, and every listed handle gets a request. Reason: §8 fixes shares
+  "in the order given" and §9 gives remainders "to the first participants in participant_handles order"; an
+  implicit caller would need a position the request never states.
+
 ## Work items (stage 1)
 
 | Item | Seat | Entries | Scope |
@@ -78,6 +83,8 @@ Adversary pre-mortem for stage 1 (Sat 3 Oct). These five risks are entries; chec
 9008. “Either all movements commit together or none do; failed validation claims no idempotency key and creates no payment or revision.” — pre-mortem 5 · W-4 · Settlements atomic, not sequential; export/import keeps tokens, operator permissions and original replay receipts.
 9009. “Unknown outcomes are not confirmed rejections.” — finding PF-A1 (Adversary, W-5 77595cc / W-6 73beaa0) · W-5, W-6 · A 2xx with an empty, `null` or unparseable body is an uncertain outcome: pay-uncertain shows, the form and key are kept, nothing throws. Status: open, with Builder-Two.
 9010. “Changing a field makes the next submission a new payment request.” — finding PF-A2 (Adversary, W-5 77595cc / W-6 73beaa0) · W-5, W-6 · The intent identity is the raw text of every form field, not the normalised body: 15 → 15.00, bob → @bob or added spaces get a new key and a new payment; an unchanged form keeps its key. Status: open, with Builder-Two.
+9011. “`amount` is at most `1000000000` on any single request, and no operation produces a balance outside ±2⁵³.” — finding PF-A3 (Adversary, W-5 77595cc / W-6 73beaa0) · W-5, W-6, W-1 · The range is inclusive: a balance of exactly 2^53 (9007199254740992) is valid, the server stores and returns it exactly, and the UI formats it (90071992547409.92 EUR) instead of throwing. Status: open, with Builder-Two (UI); Checker to cover the server side.
+9012. “The required flows must remain clear and usable at a 375 CSS-pixel viewport and at conventional desktop widths, without horizontal page scrolling.” — finding PF-A4 (Adversary, W-6 73beaa0) · W-6, W-7 · The largest legal amounts (balance 9007199254740991 or 2^53, amounts up to 1000000000) fit at 375 px without page overflow: the headline shrinks or wraps, never overflows. This binds every theme, including the restyle in W-7. Status: open, with Builder-Two.
 
 ## Stage 1 entries
 N/A: “This stage defines the initial service and its API.” — stage-1.md line 3: stage introduction, no behaviour
