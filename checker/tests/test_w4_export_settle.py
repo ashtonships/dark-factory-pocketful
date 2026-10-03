@@ -299,3 +299,50 @@ def test_concurrent_settlements_invariants(api):
         bal = {h: x.balance() for h, x in s.items()}
         assert all(v >= 0 for v in bal.values()) and sum(bal.values()) == SEED_TOTAL, bal
         assert bal["dee"] == 0
+
+
+def test_settlement_key_rules(api, ops):
+    # ledger: 112, 113, 96
+    body = {"transfers": [{"from_handle": "ada", "to_handle": "bob", "amount": 1}]}
+    assert is_error(ops["dee"].post("/settlements", body, idem=""), 400, "missing_idempotency_key")
+    assert is_error(ops["dee"].post("/settlements", body, idem="x" * 256), 422, "validation_failed")
+    assert ops["dee"].post("/settlements", body, idem="s" * 255).status == 201
+
+
+def test_no_operators_by_default(api):
+    # ledger: 252, 256
+    fx = base_fixture()
+    api.reset(fx)
+    s = api.sessions(fx)
+    for h in s:
+        r = settle(s[h], [{"from_handle": "ada", "to_handle": "bob", "amount": 1}])
+        assert is_error(r, 403, "forbidden"), (h, r)
+
+
+def test_import_into_independent_instance(api, ops):
+    # ledger: 239, 240, 238, 248 (export from one process, import into another container)
+    import os
+    from pf import Api
+    other = os.environ.get("PF_BASE_URL_2")
+    if not other:
+        pytest.skip("no second instance (--base-url mode)")
+    k = key()
+    p = ops["ada"].pay("bob", 123, idem=k, visibility="private")
+    snap = export(api)
+    b = Api(other)
+    try:
+        r = b.req("POST", "/_test/import", body=snap)
+        assert r.status == 204, r
+        hd = {"Authorization": f"Bearer {ops['ada'].token}", "Idempotency-Key": k}
+        me = b.req("GET", "/me", headers=hd)
+        assert me.status == 200 and me.json["balance"] == 10000 - 123, me
+        rp = b.req("POST", "/payments", headers=hd,
+                   body={"to_handle": "bob", "amount": 123, "visibility": "private"})
+        assert rp.status == 200 and rp.json == p.json, rp
+        assert b.login("bob@example.com").status == 200
+        fa = ops["bob"].get("/activity", {"limit": 200}).json
+        fb = b.req("GET", "/activity", params={"limit": 200}, headers={"Authorization": f"Bearer {ops['bob'].token}"})
+        assert fb.status == 200 and fb.json == fa, (fa, fb)
+    finally:
+        b.req("POST", "/_test/reset", body=base_fixture())
+        b.close()
