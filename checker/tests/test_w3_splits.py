@@ -170,3 +170,10 @@ def test_split_then_concurrent_pay_invariant(api):
         assert sum(r.status == 201 for r in res) == 2
         assert total(s) == SEED_TOTAL
         assert s["dee"].balance() == 700 + 667 + 666
+
+
+def test_split_key_length(api, seeded):
+    # ledger: 112, 113
+    body = {"amount": 5, "participant_handles": ["bob"]}
+    assert is_error(seeded["ada"].post("/splits", body, idem="x" * 256), 422, "validation_failed")
+    assert seeded["ada"].post("/splits", body, idem="z" * 255).status == 201

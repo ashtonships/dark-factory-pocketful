@@ -30,7 +30,7 @@ def reqs(s, **params):
 # ---------------------------------------------------------------- POST /payments
 
 def test_payment_201_shape_and_balances(api, seeded):
-    # ledger: 62, 150, 159, 160, 12
+    # ledger: 62, 150, 159, 160, 12, 55
     ada, bob = seeded["ada"], seeded["bob"]
     r = ada.pay("bob", 1500, note="dinner", visibility="private")
     assert r.status == 201, r
@@ -138,7 +138,7 @@ def test_insufficient_funds_changes_nothing(api, seeded):
 
 
 def test_error_precedence_payments(api, seeded):
-    # ledger: 148, 101 (D-2)
+    # ledger: 148, 101, 96, 113 (D-2)
     ada = seeded["ada"]
     # 401 before anything
     r = api.req("POST", "/payments", raw="{bad")
@@ -176,7 +176,7 @@ def test_replay_key_order_and_whitespace(api, seeded):
 
 
 def test_same_key_different_body_409(api, seeded):
-    # ledger: 140, 149
+    # ledger: 140, 149, 100
     k = key()
     assert seeded["ada"].pay("bob", 100, idem=k).status == 201
     assert is_error(seeded["ada"].pay("bob", 101, idem=k), 409, "idempotency_key_reuse")
@@ -205,7 +205,7 @@ def test_failed_key_reusable(api, seeded):
 
 
 def test_same_key_same_body_different_path_is_new(api, seeded):
-    # ledger: 135, 136
+    # ledger: 135, 136, 132
     bob = seeded["bob"]
     r1 = bob.request("ada", 10).json["request_id"]
     r2 = bob.request("ada", 20).json["request_id"]
@@ -303,7 +303,7 @@ def test_pay_default_visibility_public(api, seeded):
 
 
 def test_pay_request_errors_and_precedence(api, seeded):
-    # ledger: 176, 177, 178, 179, 67 (D-2: 404, 403, request_not_pending, insufficient_funds)
+    # ledger: 176, 177, 178, 179, 67, 98, 119 (D-2: 404, 403, request_not_pending, insufficient_funds)
     ada, bob, cy = seeded["ada"], seeded["bob"], seeded["cy"]
     assert is_error(ada.pay_request("rq_nope"), 404, "not_found")
     assert is_error(bob.pay_request("rq_1"), 403, "forbidden")
@@ -443,7 +443,7 @@ def test_requests_newest_first_and_pagination(api, seeded):
                                     {"offset": "-1"}, {"offset": "1.0"}, {"offset": "+0"},
                                     {"direction": "sideways"}, {"status": "PAID"}, {"status": "done"}])
 def test_requests_bad_query_422(api, seeded, params):
-    # ledger: 109, 110, 114, 115, 201, 202, 203
+    # ledger: 109, 110, 114, 115, 201, 202, 203, 102, 103, 112
     assert is_error(seeded["ada"].get("/requests", params=params), 422, "validation_failed")
 
 
@@ -550,3 +550,18 @@ def test_drain_race_never_negative(api):
         res = parallel([lambda: dee.pay("bob", 100)] * 40)
         assert sum(r.status == 201 for r in res) == 7, [r.status for r in res]
         assert dee.balance() == 0
+
+
+@pytest.mark.parametrize("path,body", [
+    ("/payments", {"to_handle": "bob", "amount": 5}),
+    ("/requests", {"payer_handle": "bob", "amount": 5}),
+    ("/requests/rq_1/pay", {}),
+])
+def test_key_rules_on_every_write_path(api, seeded, path, body):
+    # ledger: 112, 113, 96, 131, 132
+    ada = seeded["ada"]
+    assert is_error(ada.post(path, body), 400, "missing_idempotency_key")
+    assert is_error(ada.post(path, body, idem=""), 400, "missing_idempotency_key")
+    assert is_error(ada.post(path, body, idem="x" * 256), 422, "validation_failed")
+    assert ada.post(path, body, idem="y" * 255).status == 201
+    assert ada.post(path, body, idem="y" * 255).status == 200

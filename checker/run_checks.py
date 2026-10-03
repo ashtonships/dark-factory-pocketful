@@ -90,9 +90,14 @@ def main() -> int:
     containers: list[str] = []
     tag = f"pf-checker-s{a.stage}-{uuid.uuid4().hex[:8]}"
     base = a.base_url
+    facts: dict = {}
+    base2 = None
     try:
         if a.repo:
             folder = Path(a.repo) / f"stage-{a.stage}"
+            facts["dockerfile"] = (folder / "Dockerfile").is_file()
+            run_md = (folder / "RUN.md").read_text(errors="replace") if (folder / "RUN.md").is_file() else ""
+            facts["run_md_build_and_run"] = "docker build" in run_md and "docker run" in run_md
             for f in ("Dockerfile", "RUN.md"):
                 cases.append({"name": f"delivery: stage-{a.stage}/{f} exists (ledger: 15)",
                               "failure": None if (folder / f).is_file() else f"{f} missing"})
@@ -101,6 +106,7 @@ def main() -> int:
             cases.append({"name": "delivery: docker build succeeds (ledger: 15, 18, 32, 34)",
                           "time": time.monotonic() - t,
                           "failure": None if b.returncode == 0 else (b.stdout + b.stderr)[-4000:]})
+            facts["build_ok"] = b.returncode == 0
             if b.returncode != 0:
                 return finish(out, cases, 1)
             port, inner = free_port(), 9137
@@ -110,7 +116,9 @@ def main() -> int:
                        "-e", f"PORT={inner}", "-p", f"127.0.0.1:{port}:{inner}", tag)
             containers.append(name)
             base = f"http://127.0.0.1:{port}"
+            facts["limits"] = {"cpus": 2, "memory": "2g", "env": f"PORT={inner}"}
             ok, detail = wait_healthy(base, t + 60) if r.returncode == 0 else (False, r.stderr)
+            facts["port_env_healthy_seconds"] = round(time.monotonic() - t, 2) if ok else None
             cases.append({"name": "runtime: honours -e PORT and is healthy within 60 s on 2 vCPU/2 GiB "
                                   "(ledger: 22, 27, 28, 29, 36, 37)",
                           "time": time.monotonic() - t,
@@ -133,14 +141,20 @@ def main() -> int:
             r2 = docker("run", "-d", "--rm", "--name", name2, "-p", f"127.0.0.1:{port2}:8080", tag)
             containers.append(name2)
             ok2, d2 = wait_healthy(f"http://127.0.0.1:{port2}", t + 60) if r2.returncode == 0 else (False, r2.stderr)
+            facts["default_port_healthy"] = ok2
             cases.append({"name": "runtime: listens on 0.0.0.0:8080 when PORT is unset (ledger: 36)",
                           "time": time.monotonic() - t, "failure": None if ok2 else d2})
-            docker("rm", "-f", name2)
-            containers.remove(name2)
+            # kept running as an independent second instance (export/import across processes)
+            base2 = f"http://127.0.0.1:{port2}" if ok2 else None
         if not base:
             print("need --repo or --base-url", file=sys.stderr)
             return 2
         env = dict(os.environ, PF_BASE_URL=base, PF_ITEMS=",".join(items), PF_STAGE=str(a.stage))
+        if a.repo:
+            (out / "runtime.json").write_text(json.dumps(facts, indent=2))
+            env["PF_RUNTIME"] = str(out / "runtime.json")
+        if base2:
+            env["PF_BASE_URL_2"] = base2
         cmd = [sys.executable, "-m", "pytest", str(HERE / "tests"), "-q", "-p", "no:cacheprovider",
                "--junitxml", str(out / "checks.xml"), "-o", "junit_family=xunit1"]
         if a.keyword:
