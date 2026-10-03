@@ -323,7 +323,8 @@
   //   "idle" | "pending" | "done" | "refused" | "uncertain"
   // `error` is set only for "refused", `uncertain` only for "uncertain"; a later
   // success clears both. Only the latest submission from the form updates it.
-  function Submission() {
+  function Submission(messages) {
+    this.messages = messages || {};
     this.state = "idle";
     this.error = null;
     this.uncertain = null;
@@ -340,7 +341,7 @@
       this.state = "done"; this.error = null; this.uncertain = null; this.result = outcome.data;
     } else if (outcome.kind === "refused") {
       this.state = "refused"; this.uncertain = null; this.result = null;
-      this.error = { code: outcome.code, message: describeRefusal(outcome) };
+      this.error = { code: outcome.code, message: describeRefusal(outcome, this.messages) };
     } else {
       this.state = "uncertain"; this.error = null; this.result = null;
       this.uncertain = "We couldn't confirm whether this went through. Submit again to retry safely — it will not be sent twice.";
@@ -370,8 +371,11 @@
     idempotency_key_reuse: "This conflicts with an earlier submission. Change a field and try again.",
     validation_failed: "Please check the details and try again."
   };
-  function describeRefusal(outcome) {
-    return REFUSAL_TEXT[outcome.code] || outcome.message || "That didn't go through.";
+  // `messages` lets a form phrase a code for its own context.
+  function describeRefusal(outcome, messages) {
+    var own = messages && messages[outcome.code];
+    if (typeof own === "function") own = own(outcome);
+    return own || REFUSAL_TEXT[outcome.code] || outcome.message || "That didn't go through.";
   }
 
   // ---------------------------------------------------- latest refresh wins --

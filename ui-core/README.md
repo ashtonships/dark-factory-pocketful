@@ -25,3 +25,38 @@ Readings taken:
   previous submission from the same form is replayed.
 - Typed amounts tolerate surrounding spaces, `15.`, `.5` and leading zeros; signs, exponents, separators
   and currency text are rejected. A leading `@` on a typed handle is dropped.
+
+## W-6: screens (structure and behaviour, unstyled)
+
+| File | Role |
+|---|---|
+| `index.html`, `requests.html`, `split.html`, `signup.html`, `login.html`, `authorizations.html` | One page per stage-2 route; static forms with every `data-testid` |
+| `app.js` | Page behaviour (shell, wallet, forms, lists, refresh), built on `pocketful-core.js` |
+| `theme.css` | The single replaceable stylesheet (layout and look). System fonts only |
+| `devstub.py` | Dev-only in-memory API stand-in with fault injection. Not part of any stage |
+| `browser-drill.js`, `run-drill.sh` | Browser drill (Playwright + system Chrome) against the stub, desktop and 375 px |
+
+### What the stage-2 service must serve (Builder's routing item)
+
+| Request | Response |
+|---|---|
+| `GET /` with `Accept` containing `text/html` | `index.html` |
+| `GET /requests` with `Accept` containing `text/html` | `requests.html` (JSON API otherwise) |
+| `GET /authorizations` with `Accept` containing `text/html` | `authorizations.html` (JSON API otherwise) |
+| `GET /split`, `GET /signup`, `GET /login` with `Accept` containing `text/html` | `split.html`, `signup.html`, `login.html` |
+| `GET /ui/pocketful-core.js`, `GET /ui/app.js` | `text/javascript; charset=utf-8` |
+| `GET /ui/theme.css` | `text/css; charset=utf-8` |
+
+Pages call the API with `Accept: application/json`, so the shared paths never return HTML to the client
+code. `selftest.html`, `selftest.js`, `devstub.py` and the drill files need not be shipped.
+
+### Behaviour readings
+- The pay and authorize forms keep their values (and their idempotency key) after success, so an unchanged
+  resubmit replays. The request and split forms clear after success and start a new key.
+- A refused or successful write refreshes the page's data; an uncertain one does not (the server may be
+  unreachable) and keeps the form for a same-key retry.
+- `empty-activity` and `empty-authorizations` replace their list. `incoming-list` and `outgoing-list`
+  stay as containers, and `empty-requests` is added when both are empty.
+- `authorization-captured-{id}` appears only for `captured`. A partly collected open hold shows its
+  progress in plain text. The capture form has a "Keep the rest held" box that sends `final: false`.
+- On `/requests` the payer picks the payment's visibility next to the pay button (`request-visibility-{id}`).

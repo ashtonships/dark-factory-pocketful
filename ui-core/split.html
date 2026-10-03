@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Split · Pocketful</title>
+<link rel="stylesheet" href="/ui/theme.css">
+<script src="/ui/pocketful-core.js" defer></script>
+<script src="/ui/app.js" defer></script>
+</head>
+<body data-page="split">
+<header id="shell" class="topbar"><div class="shell"><span class="brand">Pocketful</span></div></header>
+<main class="page">
+  <h1>Split a bill</h1>
+  <div class="columns">
+    <form class="card form" id="split-form" novalidate>
+      <p class="hint">You paid; everyone else gets a request for their share. Include yourself to take a share too.</p>
+      <div class="field">
+        <label for="split-amount" data-currency-label>Amount</label>
+        <input id="split-amount" data-testid="split-amount" data-amount-input inputmode="decimal" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="split-handles">People, in order, separated by commas</label>
+        <input id="split-handles" data-testid="split-handles" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="ada, bob, cy">
+      </div>
+      <div class="field">
+        <label for="split-note">Note <span class="optional">(optional)</span></label>
+        <input id="split-note" data-testid="split-note" maxlength="200" autocomplete="off">
+      </div>
+      <button type="submit" class="button button-primary" data-testid="split-submit">Split and send requests</button>
+      <div id="split-messages" class="messages" aria-live="polite"></div>
+    </form>
+    <section class="card" aria-labelledby="preview-title">
+      <h2 id="preview-title">Shares</h2>
+      <div data-testid="split-preview" class="preview" aria-live="polite"><p class="loading">Loading…</p></div>
+    </section>
+  </div>
+</main>
+</body>
+</html>

@@ -1,0 +1,112 @@
+/*
+ * Pocketful neutral theme: the single replaceable stylesheet slot. All layout
+ * and look lives here; the pages and app.js carry structure only. Replace this
+ * file with the design Checker picks. System fonts only (no runtime fetches).
+ */
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --text: #1c2230;
+  --muted: #586174;
+  --line: #dde1e8;
+  --primary: #1f5fbf;
+  --primary-text: #ffffff;
+  --focus: #1f5fbf;
+  --ok: #17663a;   --ok-bg: #e7f4ec;
+  --err: #a12121;  --err-bg: #fbeaea;
+  --warn: #7a4b00; --warn-bg: #fff3dc;
+  --held: #5b3fa6; --held-bg: #efeafb;
+  --radius: 10px;
+  --gap: 16px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--bg);
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+h1, h2 { line-height: 1.2; margin: 0 0 12px; }
+h1 { font-size: 1.5rem; }
+h2 { font-size: 1.125rem; }
+p { margin: 0; }
+a { color: var(--primary); }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+/* shell */
+.topbar { background: var(--surface); border-bottom: 1px solid var(--line); }
+.shell { max-width: 1040px; margin: 0 auto; padding: 10px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; }
+.brand { font-weight: 700; font-size: 1.125rem; color: var(--text); text-decoration: none; }
+.nav { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.nav a { text-decoration: none; padding: 6px 2px; color: var(--muted); }
+.nav a[aria-current="page"] { color: var(--text); font-weight: 600; border-bottom: 2px solid var(--primary); }
+.user { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.user-handle { color: var(--muted); }
+
+/* layout */
+.page { max-width: 1040px; margin: 0 auto; padding: 20px 16px 48px; display: grid; gap: var(--gap); }
+.columns { display: grid; gap: var(--gap); }
+@media (min-width: 760px) { .columns { grid-template-columns: 1fr 1fr; align-items: start; } }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; min-width: 0; }
+.card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+
+/* wallet */
+.label { color: var(--muted); font-size: .875rem; }
+.amount { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+.amount-hero { font-size: 2.25rem; font-weight: 700; margin-top: 2px; }
+.wallet-sub { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 12px 0 0; color: var(--muted); }
+.wallet-sub dt { font-size: .875rem; }
+.wallet-sub dd { margin: 0; font-variant-numeric: tabular-nums; }
+.is-held dd { color: var(--held); }
+
+/* forms */
+.form { display: grid; gap: 12px; }
+.form-narrow { max-width: 420px; width: 100%; margin: 0 auto; }
+.field { display: grid; gap: 4px; }
+.field-inline { max-width: 200px; }
+label { font-weight: 600; font-size: .9375rem; }
+.optional, .hint { color: var(--muted); font-weight: 400; font-size: .875rem; }
+input, select { font: inherit; color: inherit; width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid #b9c0cc; border-radius: 8px; background: #fff; }
+input[type="checkbox"] { width: auto; }
+.check { font-weight: 400; display: inline-flex; gap: 6px; align-items: center; }
+.inline-label { font-weight: 400; color: var(--muted); }
+.button { font: inherit; border-radius: 8px; padding: 9px 16px; border: 1px solid transparent; cursor: pointer; }
+.button-primary { background: var(--primary); color: var(--primary-text); font-weight: 600; }
+.button-primary:hover { filter: brightness(1.08); }
+.button-quiet { background: transparent; color: var(--text); border-color: var(--line); }
+.button-quiet:hover { background: var(--bg); }
+.switch { color: var(--muted); }
+
+/* feedback */
+.messages:empty { display: none; }
+.messages { display: grid; gap: 8px; }
+.notice { padding: 8px 12px; border-radius: 8px; font-size: .9375rem; }
+.notice-error { background: var(--err-bg); color: var(--err); }
+.notice-uncertain { background: var(--warn-bg); color: var(--warn); }
+.notice-success { background: var(--ok-bg); color: var(--ok); }
+.notice-pending { color: var(--muted); }
+.loading, .empty, .empty-row { color: var(--muted); }
+.empty { padding: 12px 0; }
+
+/* lists */
+.list { list-style: none; margin: 0; padding: 0; }
+.item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+.item:first-child { border-top: 0; }
+.item .actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: end; gap: 8px 10px; }
+.item .actions select { width: auto; }
+.parties { font-weight: 600; overflow-wrap: anywhere; }
+.note { overflow-wrap: anywhere; }
+.meta { color: var(--muted); font-size: .875rem; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+.amount-in { color: var(--ok); }
+.badge { font-size: .75rem; padding: 1px 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); color: var(--muted); }
+.badge-private { color: var(--held); background: var(--held-bg); border-color: transparent; }
+.badge-pending, .badge-open { color: var(--warn); background: var(--warn-bg); border-color: transparent; }
+.badge-paid, .badge-captured, .badge-in { color: var(--ok); background: var(--ok-bg); border-color: transparent; }
+.badge-declined, .badge-cancelled, .badge-voided, .badge-expired { color: var(--muted); }
+.item-amounts { text-align: right; }
+
+/* split preview */
+.shares { list-style: none; margin: 0; padding: 0; }
+.shares li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
+.shares li:first-child { border-top: 0; }
+.share-who { overflow-wrap: anywhere; }

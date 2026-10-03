@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Requests · Pocketful</title>
+<link rel="stylesheet" href="/ui/theme.css">
+<script src="/ui/pocketful-core.js" defer></script>
+<script src="/ui/app.js" defer></script>
+</head>
+<body data-page="requests">
+<header id="shell" class="topbar"><div class="shell"><span class="brand">Pocketful</span></div></header>
+<main class="page">
+  <h1>Requests</h1>
+  <div id="request-messages" class="messages" aria-live="polite"></div>
+  <div id="requests-empty"></div>
+  <div class="columns">
+    <section class="card" aria-labelledby="incoming-title">
+      <h2 id="incoming-title">Asked of you</h2>
+      <ul class="list" data-testid="incoming-list"><li class="loading">Loading…</li></ul>
+    </section>
+    <section class="card" aria-labelledby="outgoing-title">
+      <h2 id="outgoing-title">You asked</h2>
+      <ul class="list" data-testid="outgoing-list"><li class="loading">Loading…</li></ul>
+    </section>
+  </div>
+</main>
+</body>
+</html>

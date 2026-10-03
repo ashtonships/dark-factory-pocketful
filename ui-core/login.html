@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · Pocketful</title>
+<link rel="stylesheet" href="/ui/theme.css">
+<script src="/ui/pocketful-core.js" defer></script>
+<script src="/ui/app.js" defer></script>
+</head>
+<body data-page="login">
+<header id="shell" class="topbar"><div class="shell"><span class="brand">Pocketful</span></div></header>
+<main class="page">
+  <form class="card form form-narrow" novalidate>
+    <h1>Sign in</h1>
+    <div class="field">
+      <label for="login-email">Email</label>
+      <input id="login-email" data-testid="login-email" type="email" autocomplete="email" autocapitalize="none">
+    </div>
+    <div class="field">
+      <label for="login-password">Password</label>
+      <input id="login-password" data-testid="login-password" type="password" autocomplete="current-password">
+    </div>
+    <button type="submit" class="button button-primary" data-testid="login-submit">Sign in</button>
+    <div id="auth-messages" class="messages" aria-live="polite"></div>
+    <p class="switch">New to Pocketful? <a href="/signup">Create an account</a></p>
+  </form>
+</main>
+</body>
+</html>

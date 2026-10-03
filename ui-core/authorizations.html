@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Holds · Pocketful</title>
+<link rel="stylesheet" href="/ui/theme.css">
+<script src="/ui/pocketful-core.js" defer></script>
+<script src="/ui/app.js" defer></script>
+</head>
+<body data-page="authorizations">
+<header id="shell" class="topbar"><div class="shell"><span class="brand">Pocketful</span></div></header>
+<main class="page">
+  <section class="card wallet" aria-labelledby="wallet-title">
+    <div class="card-head">
+      <h1 id="wallet-title">Holds</h1>
+      <button type="button" class="button button-quiet" data-testid="wallet-refresh">Refresh</button>
+    </div>
+    <div id="wallet" class="wallet-body"><p class="loading">Loading your balance…</p></div>
+    <div id="refresh-status" class="messages" aria-live="polite"></div>
+  </section>
+  <div class="columns">
+  <form class="card form" id="authorize-form" novalidate>
+    <h2>Hold money</h2>
+    <p class="hint">Reserve money now; they collect it later, all at once or in parts. Unclaimed money returns to you when the hold expires.</p>
+    <div class="field">
+      <label for="authorize-handle">For</label>
+      <input id="authorize-handle" data-testid="authorize-handle" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="handle">
+    </div>
+    <div class="field">
+      <label for="authorize-amount" data-currency-label>Amount</label>
+      <input id="authorize-amount" data-testid="authorize-amount" data-amount-input inputmode="decimal" autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="authorize-note">Note <span class="optional">(optional)</span></label>
+      <input id="authorize-note" data-testid="authorize-note" maxlength="200" autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="authorize-visibility">Who can see it</label>
+      <select id="authorize-visibility" data-testid="authorize-visibility">
+        <option value="public">Public</option>
+        <option value="private">Private (only the two of you)</option>
+      </select>
+    </div>
+    <button type="submit" class="button button-primary" data-testid="authorize-submit">Hold money</button>
+    <div id="authorize-messages" class="messages" aria-live="polite"></div>
+  </form>
+    <section class="card" aria-labelledby="auth-list-title">
+      <h2 id="auth-list-title">Your holds</h2>
+      <div id="authorization-messages" class="messages" aria-live="polite"></div>
+      <div id="authorizations"><p class="loading">Loading holds…</p></div>
+    </section>
+  </div>
+</main>
+</body>
+</html>

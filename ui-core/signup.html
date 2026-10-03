@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Create account · Pocketful</title>
+<link rel="stylesheet" href="/ui/theme.css">
+<script src="/ui/pocketful-core.js" defer></script>
+<script src="/ui/app.js" defer></script>
+</head>
+<body data-page="signup">
+<header id="shell" class="topbar"><div class="shell"><span class="brand">Pocketful</span></div></header>
+<main class="page">
+  <form class="card form form-narrow" novalidate>
+    <h1>Create your account</h1>
+    <div class="field">
+      <label for="signup-display-name">Your name</label>
+      <input id="signup-display-name" data-testid="signup-display-name" autocomplete="name">
+    </div>
+    <div class="field">
+      <label for="signup-email">Email</label>
+      <input id="signup-email" data-testid="signup-email" type="email" autocomplete="email" autocapitalize="none">
+      <p class="hint">Your handle is made from the part before the @.</p>
+    </div>
+    <div class="field">
+      <label for="signup-password">Password</label>
+      <input id="signup-password" data-testid="signup-password" type="password" autocomplete="new-password">
+      <p class="hint">At least 8 characters.</p>
+    </div>
+    <button type="submit" class="button button-primary" data-testid="signup-submit">Create account</button>
+    <div id="auth-messages" class="messages" aria-live="polite"></div>
+    <p class="switch">Already have an account? <a href="/login">Sign in</a></p>
+  </form>
+</main>
+</body>
+</html>
