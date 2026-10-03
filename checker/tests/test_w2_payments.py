@@ -565,3 +565,20 @@ def test_key_rules_on_every_write_path(api, seeded, path, body):
     assert is_error(ada.post(path, body, idem="x" * 256), 422, "validation_failed")
     assert ada.post(path, body, idem="y" * 255).status == 201
     assert ada.post(path, body, idem="y" * 255).status == 200
+
+
+def test_balance_at_2_pow_53_pays_and_receives_exactly(api):
+    # ledger: 80, 81, 9011
+    top = 2 ** 53
+    fx = base_fixture(payments=[], requests=[])
+    fx["users"][0]["balance"] = top
+    fx["users"][1]["balance"] = top - 1_000_000_000
+    api.reset(fx)
+    ada, bob = api.session("ada@example.com"), api.session("bob@example.com")
+    assert ada.pay("cy", 1).status == 201
+    assert ada.balance() == top - 1
+    r = ada.pay("bob", 1_000_000_000)
+    assert r.status == 201 and r.json["amount"] == 1_000_000_000, r
+    assert bob.balance() == top and ada.balance() == top - 1 - 1_000_000_000
+    assert bob.pay("ada", 1_000_000_001).status == 201
+    assert ada.balance() == top and bob.balance() == top - 1_000_000_001
