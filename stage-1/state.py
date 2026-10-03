@@ -4,7 +4,7 @@ import re
 import sqlite3
 from datetime import datetime
 
-from core import HANDLE_PATTERN, MAX_BALANCE, TABLES, email_key, identifier, number_as_integer, valid_email, validation, write_transaction
+from core import HANDLE_PATTERN, MAX_BALANCE, PASSWORD_ITERATIONS, TABLES, email_key, identifier, number_as_integer, valid_email, validation, write_transaction
 
 
 NULLABLE = {("payments", "request_id"), ("payments", "settlement_id"), ("requests", "payment_id")}
@@ -99,7 +99,7 @@ def validate_state(db, envelope):
             validation("Invalid user")
         if user["handle"] in handles or user["email_key"] in emails or not 0 <= user["balance"] <= MAX_BALANCE:
             validation("Invalid wallet")
-        if not re.fullmatch(r"[0-9a-f]{32}", user["password_salt"]) or not re.fullmatch(r"[0-9a-f]{64}", user["password_hash"]):
+        if not re.fullmatch(r"[0-9a-f]{32}", user["password_salt"]) or not re.fullmatch(rf"(?:pbkdf2_sha256\${PASSWORD_ITERATIONS}\$)?[0-9a-f]{{64}}", user["password_hash"]):
             validation("Invalid password hash")
         handles.add(user["handle"])
         emails.add(user["email_key"])

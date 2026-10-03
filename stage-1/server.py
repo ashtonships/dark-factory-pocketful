@@ -16,6 +16,7 @@ from state import export_state, import_state
 
 
 MAX_BODY_BYTES = 8 * 1024 * 1024
+MAX_OFFSET = 2**63 - 1
 REQUEST_ACTION = re.compile(r"^/requests/([^/]+)/(pay|decline|cancel)$")
 ROUTES = {
     "/health": {"GET"},
@@ -66,6 +67,8 @@ class PocketfulHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
+        if self.close_connection:
+            self.send_header("Connection", "close")
         self.end_headers()
         if payload and self.command != "HEAD":
             self.wfile.write(payload)
@@ -216,13 +219,17 @@ class PocketfulHandler(BaseHTTPRequestHandler):
             validation("Invalid limit")
         limit = int(significant_limit)
         significant_offset = offset_text.lstrip("0") or "0"
-        offset = int(significant_offset) if len(significant_offset) < 19 else 2**63 - 1
+        offset = min(int(significant_offset), MAX_OFFSET) if len(significant_offset) <= len(str(MAX_OFFSET)) else MAX_OFFSET
         return query, limit, offset
 
     def dispatch(self):
         self.connection.settimeout(10 if urlsplit(self.path).path in ("/_test/reset", "/_test/import", "/_test/export") else 5)
         try:
-            raw_body = self.read_body()
+            try:
+                raw_body = self.read_body()
+            finally:
+                # Body deadlines must not expire an idle reusable connection.
+                self.connection.settimeout(None)
             path = urlsplit(self.path).path
             methods = self.route_info(path)
             if methods is None:

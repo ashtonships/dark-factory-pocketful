@@ -16,6 +16,7 @@ DATABASE_PATH = os.environ.get("POCKETFUL_DB", "/tmp/pocketful.sqlite3")
 WRITE_LOCK = threading.RLock()
 HANDLE_PATTERN = re.compile(r"^[a-z0-9_]{1,20}$")
 MAX_BALANCE = 2**53
+PASSWORD_ITERATIONS = 20000
 TABLES = ("idempotency", "tokens", "payments", "requests", "splits", "settlements", "operators", "users", "meta")
 
 
@@ -62,12 +63,17 @@ def derived_handle(email):
 
 def hash_password(password, salt=None):
     salt = salt or secrets.token_bytes(16)
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 120000)
-    return salt.hex(), digest.hex()
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, PASSWORD_ITERATIONS)
+    return salt.hex(), f"pbkdf2_sha256${PASSWORD_ITERATIONS}${digest.hex()}"
 
 
 def check_password(password, salt_hex, digest_hex):
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt_hex), 120000)
+    # Keep earlier exports readable; new records carry their KDF work factor.
+    iterations = 120000
+    if digest_hex.startswith("pbkdf2_sha256$"):
+        _, iterations_text, digest_hex = digest_hex.split("$")
+        iterations = int(iterations_text)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt_hex), iterations)
     return hmac.compare_digest(digest.hex(), digest_hex)
 
 
@@ -209,14 +215,11 @@ def canonical_value(value):
         return ["null"]
     if isinstance(value, (int, Decimal)):
         parts = Decimal(value).as_tuple()
-        digits = list(parts.digits)
-        exponent = parts.exponent
-        if not any(digits):
+        digits = "".join(str(digit) for digit in parts.digits)
+        coefficient = digits.rstrip("0")
+        if not coefficient:
             return ["number", "0"]
-        while digits[-1] == 0:
-            digits.pop()
-            exponent += 1
-        coefficient = "".join(str(digit) for digit in digits)
+        exponent = parts.exponent + len(digits) - len(coefficient)
         return ["number", f"{'-' if parts.sign else ''}{coefficient}e{exponent}"]
     return ["string", value]
 
