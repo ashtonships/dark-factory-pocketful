@@ -580,5 +580,5 @@ def test_balance_at_2_pow_53_pays_and_receives_exactly(api):
     r = ada.pay("bob", 1_000_000_000)
     assert r.status == 201 and r.json["amount"] == 1_000_000_000, r
     assert bob.balance() == top and ada.balance() == top - 1 - 1_000_000_000
-    assert bob.pay("ada", 1_000_000_001).status == 201
+    assert bob.pay("ada", 1_000_000_000).status == 201 and bob.pay("ada", 1).status == 201
     assert ada.balance() == top and bob.balance() == top - 1_000_000_001
