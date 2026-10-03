@@ -15,7 +15,8 @@ Updated by Coordinator. Ledger: `ledger/pocketful.md`. Time box: final report by
 | W-2 | Builder | open (after W-1) | 62–79, 131–204, 217–220 | — |
 | W-3 | Builder | open | 205–216, 221–231 | — |
 | W-4 | Builder | open | 232–273 | — |
-| W-5 | Builder-Two | in progress (client core, outside stage folders) | stage-2 UI | — |
+| W-5 | Builder-Two | handed back 77595cc; in Adversary code review | stage-2 UI | Builder-Two self-test 38/38 (not evidence) |
+| W-6 | Builder-Two | in progress (screen structure and behaviour, unstyled, ui-core/) | stage-2 UI | — |
 | W-D | Builder | open (starts when W-1 accepted) | stage-2 direction | — |
 
 ## Blockers and exceptions
