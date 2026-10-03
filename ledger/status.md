@@ -16,7 +16,7 @@ Updated by Coordinator. Ledger: `ledger/pocketful.md`. Time box: final report by
 | W-3 | Builder | open | 205–216, 221–231 | — |
 | W-4 | Builder | open | 232–273 | — |
 | W-5 | Builder-Two | handed back 77595cc; in Adversary code review | stage-2 UI | Builder-Two self-test 38/38 (not evidence) |
-| W-6 | Builder-Two | handed back 73beaa0; in Adversary review; D-11 change requested | stage-2 UI | Builder-Two drill 109/109 (not evidence) |
+| W-6 | Builder-Two | 73beaa0 → f074486 (D-11) → 93f3606 (fixes PF-A1..A4, survivor-11 test); in Adversary re-review | stage-2 UI | Builder-Two drill 109/109 (not evidence) |
 | W-D | Builder | open (starts when W-1 accepted) | stage-2 direction | — |
 
 ## Blockers and exceptions
