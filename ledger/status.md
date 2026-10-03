@@ -21,4 +21,8 @@ Updated by Coordinator. Ledger: `ledger/pocketful.md`. Time box: final report by
 
 ## Blockers and exceptions
 
-None.
+- Identity exception: main merge commit 370fdb5 (ledger merge) carries the repository's default git identity, not Checker's. History is not rewritten; reported by Checker.
+
+## Checks
+
+- Checker checks on main at 72c24d2: W-1 59, W-2 97, W-3 27, W-4 42 (items in force: checker/items.json). 247/254 stage-1 entries referenced; unreferenced: 2, 3 (process), 23, 32 (harness isolated mode), 35 (from stage 2), 219, 251 (permissions).
