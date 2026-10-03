@@ -12,6 +12,7 @@ from core import (
     malformed, new_id, new_token, note, payment_body, request_body, required_string,
     reset, timestamp, valid_email, validation, visibility, write_transaction,
 )
+from state import export_state, import_state
 
 
 MAX_BODY_BYTES = 8 * 1024 * 1024
@@ -219,7 +220,7 @@ class PocketfulHandler(BaseHTTPRequestHandler):
         return query, limit, offset
 
     def dispatch(self):
-        self.connection.settimeout(10 if self.command == "POST" and urlsplit(self.path).path in ("/_test/reset", "/_test/import") else 5)
+        self.connection.settimeout(10 if urlsplit(self.path).path in ("/_test/reset", "/_test/import", "/_test/export") else 5)
         try:
             raw_body = self.read_body()
             path = urlsplit(self.path).path
@@ -238,6 +239,15 @@ class PocketfulHandler(BaseHTTPRequestHandler):
                     if self.body_too_large:
                         validation("Body is too large")
                     reset(db, json_body(raw_body))
+                    self.send_json(204)
+                    return
+                if path == "/_test/export":
+                    self.send_json(200, export_state(db))
+                    return
+                if path == "/_test/import":
+                    if self.body_too_large:
+                        validation("Body is too large")
+                    import_state(db, json_body(raw_body))
                     self.send_json(204)
                     return
                 if path in ("/auth/signup", "/auth/login"):
@@ -291,6 +301,11 @@ class PocketfulHandler(BaseHTTPRequestHandler):
                 if path == "/splits":
                     self.idempotent(db, user, path, body, self.create_split)
                     return
+                if path == "/settlements":
+                    if db.execute("SELECT 1 FROM operators WHERE user_id = ?", (user["id"],)).fetchone() is None:
+                        raise APIError(403, "forbidden")
+                    self.idempotent(db, user, path, body, self.create_settlement)
+                    return
                 if action and action.group(2) == "pay":
                     self.idempotent(db, user, path, body, lambda db, user, body: self.pay_request(db, user, body, action.group(1)))
                     return
@@ -299,6 +314,8 @@ class PocketfulHandler(BaseHTTPRequestHandler):
                 db.close()
         except APIError as error:
             self.send_api_error(error)
+        except RecursionError:
+            self.send_api_error(APIError(400, "malformed_request", "JSON nesting is too deep"))
         except (socket.timeout, TimeoutError):
             self.close_connection = True
             self.send_api_error(APIError(400, "malformed_request", "Timed out reading request"))
@@ -473,6 +490,58 @@ class PocketfulHandler(BaseHTTPRequestHandler):
         )
         return {"split_id": split_id, "amount": value, "currency": get_meta(db)["currency"], "note": split_note,
                 "shares": shares, "requests": requests, "created_at": created_at}
+
+    def create_settlement(self, db, user, body):
+        if db.execute("SELECT 1 FROM operators WHERE user_id = ?", (user["id"],)).fetchone() is None:
+            raise APIError(403, "forbidden")
+        transfers = body.get("transfers")
+        if not isinstance(transfers, list) or not 1 <= len(transfers) <= 32:
+            validation("Transfers must contain 1 to 32 objects")
+        prepared = []
+        net = {}
+        for transfer in transfers:
+            if not isinstance(transfer, dict):
+                validation("Invalid transfer object")
+            source_handle = transfer.get("from_handle")
+            target_handle = transfer.get("to_handle")
+            if not isinstance(source_handle, str) or not isinstance(target_handle, str):
+                validation("Invalid transfer handles")
+            value = amount(transfer)
+            transfer_note = note(transfer)
+            transfer_visibility = visibility(transfer)
+            if not HANDLE_PATTERN.fullmatch(source_handle) or not HANDLE_PATTERN.fullmatch(target_handle):
+                validation("Invalid transfer handle")
+            if source_handle == target_handle:
+                raise APIError(422, "self_payment")
+            source = db.execute("SELECT * FROM users WHERE handle = ?", (source_handle,)).fetchone()
+            target = db.execute("SELECT * FROM users WHERE handle = ?", (target_handle,)).fetchone()
+            if source is None or target is None:
+                raise APIError(404, "not_found")
+            prepared.append((source["id"], target["id"], value, transfer_note, transfer_visibility))
+            net[source["id"]] = net.get(source["id"], 0) - value
+            net[target["id"]] = net.get(target["id"], 0) + value
+        final_balances = {}
+        for user_id, delta in net.items():
+            balance = db.execute("SELECT balance FROM users WHERE id = ?", (user_id,)).fetchone()["balance"] + delta
+            if balance < 0:
+                raise APIError(409, "insufficient_funds")
+            if balance > MAX_BALANCE:
+                validation("Balance limit exceeded")
+            final_balances[user_id] = balance
+        # Assign net balances directly: no transient overdrafts even for cycles.
+        db.executemany("UPDATE users SET balance = ? WHERE id = ?", ((balance, user_id) for user_id, balance in final_balances.items()))
+        settlement_id = new_id("st_")
+        committed_at = timestamp()
+        db.execute("INSERT INTO settlements(id, operator_id, committed_at) VALUES(?, ?, ?)", (settlement_id, user["id"], committed_at))
+        payments = []
+        for source_id, target_id, value, transfer_note, transfer_visibility in prepared:
+            payment_id = new_id("p_")
+            db.execute(
+                "INSERT INTO payments(id, from_user_id, to_user_id, amount, note, visibility, request_id, settlement_id, created_at) VALUES(?, ?, ?, ?, ?, ?, NULL, ?, ?)",
+                (payment_id, source_id, target_id, value, transfer_note, transfer_visibility, settlement_id, committed_at),
+            )
+            payments.append(payment_body(db, db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone()))
+        return {"settlement_id": settlement_id, "committed_at": committed_at, "payments": payments}
 
     def list_requests(self, db, user):
         query, limit, offset = self.pagination()
