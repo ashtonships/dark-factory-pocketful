@@ -1,4 +1,7 @@
 {
   "comment": "Work items whose checks are in force on main, mapped to the first stage they bind. Checker adds an item when it lands.",
-  "items": {"W-1": 1}
+  "items": {
+    "W-1": 1,
+    "W-2": 1
+  }
 }
