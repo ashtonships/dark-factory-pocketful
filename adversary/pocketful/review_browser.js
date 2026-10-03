@@ -125,11 +125,14 @@ async function run() {
         const sizes = await page.evaluate(() => ({ content: document.documentElement.scrollWidth, viewport: document.documentElement.clientWidth }));
         assert.ok(sizes.content <= sizes.viewport, JSON.stringify(sizes));
       });
+      await page.close();
+      const boundaryPage = await context.newPage();
+      boundaryPage.setDefaultTimeout(5000);
       large.users[0].balance = 2 ** 53;
       await call("/_test/reset", large);
       await check("inclusive 2^53 wallet balance renders", async () => {
-        await signIn(page);
-        assert.equal(await page.locator(selector("wallet-balance")).textContent(), "90071992547409.92 EUR");
+        await signIn(boundaryPage);
+        assert.equal(await boundaryPage.locator(selector("wallet-balance")).textContent(), "90071992547409.92 EUR");
       });
       await context.close();
     }
