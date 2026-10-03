@@ -59,4 +59,5 @@ code. `selftest.html`, `selftest.js`, `devstub.py` and the drill files need not 
   stay as containers, and `empty-requests` is added when both are empty.
 - `authorization-captured-{id}` appears only for `captured`. A partly collected open hold shows its
   progress in plain text. The capture form has a "Keep the rest held" box that sends `final: false`.
+- D-11: the authorize form is on both `/` and `/authorizations`, with the pay form's input rules.
 - On `/requests` the payer picks the payment's visibility next to the pay button (`request-visibility-{id}`).

@@ -220,6 +220,7 @@
       messages: handleMessages("handle"),
       success: function (r) { return "Asked @" + r.payer_handle + " for " + money(r.amount) + "."; }
     });
+    initAuthorizeForm();
     renderers.push(function (d) { renderActivity(d.activity); });
   }
 

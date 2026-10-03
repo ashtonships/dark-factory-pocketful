@@ -207,6 +207,31 @@ async function run() {
   await page.fill(T("request-amount"), "3");
   await page.click(T("request-submit"));
   check("request to unknown handle shows request-error", await waitPresent(page, "request-error"));
+  // authorize form on / (D-11)
+  const availHome = Number(await attr(page, "wallet-available", "data-amount"));
+  const totalHome = await attr(page, "wallet-balance", "data-amount");
+  await page.fill(T("authorize-handle"), "cy");
+  await page.fill(T("authorize-amount"), "1.005");
+  await page.click(T("authorize-submit"));
+  check("/ authorize: 1.005 shows authorize-error", await waitPresent(page, "authorize-error"));
+  await page.fill(T("authorize-amount"), "2.5");
+  await page.fill(T("authorize-note"), "home hold");
+  await page.selectOption(T("authorize-visibility"), "private");
+  await page.click(T("authorize-submit"));
+  check("/ authorize: available refreshes down by 2.50", await page.waitForFunction(([s, v]) => document.querySelector(s)?.getAttribute("data-amount") === v, [T("wallet-available"), String(availHome - 250)], { timeout: 4000 }).then(() => true, () => false));
+  check("/ authorize: total unchanged, held shown", (await attr(page, "wallet-balance", "data-amount")) === totalHome && (await count(page, "wallet-held")) === 1);
+  check("/ authorize: authorize-error cleared", (await count(page, "authorize-error")) === 0);
+  await page.click(T("authorize-submit"));
+  await page.waitForTimeout(500);
+  check("/ authorize: unchanged resubmit holds once", (await attr(page, "wallet-available", "data-amount")) === String(availHome - 250));
+  await page.fill(T("authorize-amount"), "99999");
+  await page.click(T("authorize-submit"));
+  check("/ authorize beyond available: authorize-error", await waitPresent(page, "authorize-error"));
+  const homeAuth = (await call("GET", "/authorizations?direction=outgoing&status=open", undefined, await login("ada@example.com"))).data.authorizations.find((a) => a.note === "home hold");
+  check("/ authorize created a private 2.50 hold for cy", !!homeAuth && homeAuth.amount === 250 && homeAuth.visibility === "private" && homeAuth.to_handle === "cy");
+  await call("POST", "/authorizations/" + homeAuth.authorization_id + "/void", {}, await login("ada@example.com"));
+  await page.click(T("wallet-refresh"));
+  await waitText(page, "wallet-available", (availHome / 100).toFixed(2) + " EUR");
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "desktop-wallet.png"), fullPage: true });
   check("desktop /: no horizontal scroll", await noHorizontalScroll(page));
 

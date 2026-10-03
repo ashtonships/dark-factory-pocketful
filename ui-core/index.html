@@ -62,6 +62,33 @@
     <div id="request-messages" class="messages" aria-live="polite"></div>
   </form>
   </div>
+  <div class="columns">
+  <form class="card form" id="authorize-form" novalidate>
+    <h2>Hold money</h2>
+    <p class="hint">Reserve money now; they collect it later, all at once or in parts. Unclaimed money returns to you when the hold expires.</p>
+    <div class="field">
+      <label for="authorize-handle">For</label>
+      <input id="authorize-handle" data-testid="authorize-handle" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="handle">
+    </div>
+    <div class="field">
+      <label for="authorize-amount" data-currency-label>Amount</label>
+      <input id="authorize-amount" data-testid="authorize-amount" data-amount-input inputmode="decimal" autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="authorize-note">Note <span class="optional">(optional)</span></label>
+      <input id="authorize-note" data-testid="authorize-note" maxlength="200" autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="authorize-visibility">Who can see it</label>
+      <select id="authorize-visibility" data-testid="authorize-visibility">
+        <option value="public">Public</option>
+        <option value="private">Private (only the two of you)</option>
+      </select>
+    </div>
+    <button type="submit" class="button button-primary" data-testid="authorize-submit">Hold money</button>
+    <div id="authorize-messages" class="messages" aria-live="polite"></div>
+  </form>
+  </div>
   <section class="card" aria-labelledby="activity-title">
     <h2 id="activity-title">Activity</h2>
     <div id="activity"><p class="loading">Loading activity…</p></div>
