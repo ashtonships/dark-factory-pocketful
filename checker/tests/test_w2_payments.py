@@ -216,7 +216,7 @@ def test_same_key_same_body_different_path_is_new(api, seeded):
 
 
 def test_concurrent_identical_one_201(api, seeded):
-    # ledger: 143, 144, 145, 9
+    # ledger: 143, 144, 145, 9, 9005
     for _ in range(3):
         api.reset(base_fixture())
         ada = api.session("ada@example.com")
@@ -520,7 +520,7 @@ def test_feed_bad_query_422(api, seeded, params):
 # ---------------------------------------------------------------- invariants under load
 
 def test_payment_storm_invariants(api):
-    # ledger: 9, 10, 30, 116, 159
+    # ledger: 9, 10, 30, 116, 159, 9004
     for _ in range(3):
         api.reset(base_fixture())
         s = {h: api.session(f"{h}@example.com") for h in ("ada", "bob", "cy", "dee")}

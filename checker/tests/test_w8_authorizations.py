@@ -81,7 +81,7 @@ def auths(s, **params):
 # ---------------------------------------------------------------- /me and seeded holds
 
 def test_me_fields_seeded_hold(api, au):
-    # ledger: 1001, 1103, 1118, 1119, 1120, 1139, 1140, 1141, 1145, 1147, 1151, 1152
+    # ledger: 1138, 1001, 1103, 1118, 1119, 1120, 1139, 1140, 1141, 1145, 1147, 1151, 1152
     assert wallet(au["ada"]) == (10000, 8000, 2000)  # a_old expired by the clock holds nothing
     assert wallet(au["bob"]) == (2500, 2500, 0)
     m = me(au["ada"])
@@ -484,3 +484,13 @@ def test_upgrade_from_stage1_export(api):
     pay = api.req("POST", f"/requests/{q}/pay", headers=hd(ss["ada"], key()), body={})
     assert pay.status == 201 and pay.json["authorization_id"] is None, pay
     assert api.req("GET", "/authorizations", headers=hd(ss["ada"])).json["authorizations"] == []
+
+
+def test_split_unchanged_with_holds(api, au):
+    # ledger: 1130
+    r = au["cy"].post("/splits", {"amount": 3000, "participant_handles": ["ada", "bob", "cy"]}, idem=key())
+    assert r.status == 201 and [x["amount"] for x in r.json["shares"]] == [1000, 1000, 1000], r
+    assert wallet(au["ada"]) == (10000, 8000, 2000)
+    q = [x for x in r.json["requests"] if x["payer_handle"] == "ada"][0]["request_id"]
+    assert au["ada"].pay_request(q).status == 201
+    assert wallet(au["ada"]) == (9000, 7000, 2000)

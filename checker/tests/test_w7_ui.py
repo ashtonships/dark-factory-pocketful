@@ -687,6 +687,10 @@ def test_no_horizontal_scroll_and_labels(api, browser, width):
     api.reset(ui_fixture())
     ctx = browser.new_context(viewport={"width": width, "height": 900}, base_url=api.base)
     page = ctx.new_page()
+    origin = urlparse(api.base).netloc
+    foreign = []
+    page.on("request", lambda r: foreign.append(r.url)
+            if urlparse(r.url).scheme in ("http", "https") and urlparse(r.url).netloc != origin else None)
     try:
         for path in ["/login", "/signup"]:
             page.goto(path)
@@ -705,5 +709,23 @@ def test_no_horizontal_scroll_and_labels(api, browser, width):
                 .filter(e => !(e.labels && e.labels.length) && !e.getAttribute('aria-labelledby'))
                 .map(e => e.getAttribute('data-testid'))""")
             assert unlabeled == [], (path, unlabeled)
+        # ledger: 35, 34 (fonts, scripts and stylesheets come from the image, nothing external)
+        assert foreign == [], foreign
     finally:
         ctx.close()
+
+
+def test_refresh_waits_for_write(api, page):
+    # ledger: 1078, 1077
+    api.reset(ui_fixture(authorizations=[]))
+    login(page)
+    order = []
+    page.on("request", lambda r: order.append((r.method, urlparse(r.url).path)))
+    page.on("response", lambda r: order.append(("DONE", r.request.method, urlparse(r.url).path)))
+    fill_pay(page, "bob", "1")
+    T(page, "pay-submit").click()
+    expect(T(page, "wallet-balance")).to_have_text("99.00 EUR")
+    done = next(i for i, e in enumerate(order) if e[:3] == ("DONE", "POST", "/payments"))
+    start = next(i for i, e in enumerate(order) if e == ("POST", "/payments"))
+    early = [e for e in order[start:done] if e[0] == "GET" and e[1] in ("/me", "/activity")]
+    assert early == [], order
