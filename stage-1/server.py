@@ -4,12 +4,13 @@ import re
 import socket
 from decimal import Decimal, InvalidOperation
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from core import (
-    APIError, HANDLE_PATTERN, check_password, connection, derived_handle, email_key,
-    get_meta, hash_password, initialize, malformed, new_id, new_token,
-    required_string, reset, valid_email, validation, write_transaction,
+    APIError, HANDLE_PATTERN, MAX_BALANCE, amount, canonical_body, check_password,
+    connection, derived_handle, email_key, get_meta, hash_password, initialize,
+    malformed, new_id, new_token, note, payment_body, request_body, required_string,
+    reset, timestamp, valid_email, validation, visibility, write_transaction,
 )
 
 
@@ -34,8 +35,8 @@ ROUTES = {
 def json_body(data):
     try:
         decoded = data.decode("utf-8", errors="strict")
-        value = json.loads(decoded, parse_float=Decimal, parse_constant=lambda _: malformed())
-    except (UnicodeDecodeError, json.JSONDecodeError, ValueError, OverflowError, InvalidOperation):
+        value = json.loads(decoded, parse_int=Decimal, parse_float=Decimal, parse_constant=lambda _: malformed())
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError, OverflowError, InvalidOperation, RecursionError):
         malformed()
     if not isinstance(value, dict):
         malformed("Body must be a JSON object")
@@ -165,6 +166,58 @@ class PocketfulHandler(BaseHTTPRequestHandler):
             raise APIError(401, "unauthenticated")
         return user
 
+    def current_user(self, db, user):
+        authorization = self.headers.get("Authorization", "")
+        token = authorization.removeprefix("Bearer ")
+        current = db.execute(
+            "SELECT users.* FROM users JOIN tokens ON tokens.user_id = users.id WHERE users.id = ? AND tokens.token = ?",
+            (user["id"], token),
+        ).fetchone()
+        if current is None:
+            raise APIError(401, "unauthenticated")
+        return current
+
+    def idempotent(self, db, user, path, body, operation):
+        key = self.headers.get("Idempotency-Key")
+        if key is None or key == "":
+            raise APIError(400, "missing_idempotency_key")
+        if len(key) > 255:
+            validation("Idempotency key is too long")
+        body_json = canonical_body(body)
+        with write_transaction(db):
+            user = self.current_user(db, user)
+            prior = db.execute(
+                "SELECT body_json, response_json FROM idempotency WHERE user_id = ? AND key = ? AND method = ? AND path = ?",
+                (user["id"], key, self.command, path),
+            ).fetchone()
+            if prior is not None:
+                if prior["body_json"] != body_json:
+                    raise APIError(409, "idempotency_key_reuse")
+                result = json.loads(prior["response_json"])
+                status = 200
+            else:
+                result = operation(db, user, body)
+                db.execute(
+                    "INSERT INTO idempotency VALUES(?, ?, ?, ?, ?, ?)",
+                    (user["id"], key, self.command, path, body_json, json.dumps(result, ensure_ascii=False, separators=(",", ":"))),
+                )
+                status = 201
+        self.send_json(status, result)
+
+    def pagination(self):
+        query = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
+        limit_text = query.get("limit", ["50"])[-1]
+        offset_text = query.get("offset", ["0"])[-1]
+        if not re.fullmatch(r"[0-9]+", limit_text) or not re.fullmatch(r"[0-9]+", offset_text):
+            validation("Invalid pagination")
+        significant_limit = limit_text.lstrip("0") or "0"
+        if len(significant_limit) > 3 or not 1 <= int(significant_limit) <= 200:
+            validation("Invalid limit")
+        limit = int(significant_limit)
+        significant_offset = offset_text.lstrip("0") or "0"
+        offset = int(significant_offset) if len(significant_offset) < 19 else 2**63 - 1
+        return query, limit, offset
+
     def dispatch(self):
         self.connection.settimeout(10 if self.command == "POST" and urlsplit(self.path).path in ("/_test/reset", "/_test/import") else 5)
         try:
@@ -196,18 +249,47 @@ class PocketfulHandler(BaseHTTPRequestHandler):
                     else:
                         self.login(db, body)
                     return
+                if self.command == "GET":
+                    db.execute("BEGIN")
+                    try:
+                        user = self.authenticate(db)
+                        if path == "/me":
+                            meta = get_meta(db)
+                            result = {
+                                "user_id": user["id"], "display_name": user["display_name"],
+                                "handle": user["handle"], "balance": user["balance"],
+                                "currency": meta["currency"], "minor_units": int(meta["minor_units"]),
+                            }
+                        elif path == "/requests":
+                            result = self.list_requests(db, user)
+                        elif path == "/activity":
+                            result = self.activity(db, user)
+                        else:
+                            raise APIError(404, "not_found")
+                        db.execute("COMMIT")
+                    except BaseException:
+                        db.execute("ROLLBACK")
+                        raise
+                    self.send_json(200, result)
+                    return
                 user = self.authenticate(db)
                 if self.body_too_large:
                     validation("Body is too large")
-                if self.command == "POST":
-                    json_body(raw_body)
-                if path == "/me":
-                    meta = get_meta(db)
-                    self.send_json(200, {
-                        "user_id": user["id"], "display_name": user["display_name"],
-                        "handle": user["handle"], "balance": user["balance"],
-                        "currency": meta["currency"], "minor_units": int(meta["minor_units"]),
-                    })
+                action = REQUEST_ACTION.fullmatch(path)
+                if action and action.group(2) in ("decline", "cancel"):
+                    if raw_body:
+                        json_body(raw_body)
+                    self.transition_request(db, user, action.group(1), action.group(2))
+                    return
+                body = json_body(raw_body)
+                if path == "/payments":
+                    self.idempotent(db, user, path, body, self.create_payment)
+                    return
+                if path == "/requests":
+                    self.idempotent(db, user, path, body, self.create_request)
+                    return
+                if action and action.group(2) == "pay":
+                    self.idempotent(db, user, path, body, lambda db, user, body: self.pay_request(db, user, body, action.group(1)))
                     return
                 raise APIError(404, "not_found")
             finally:
@@ -256,6 +338,132 @@ class PocketfulHandler(BaseHTTPRequestHandler):
                 raise APIError(401, "unauthenticated")
             db.execute("INSERT INTO tokens VALUES(?, ?)", (token, user["id"]))
         self.send_json(200, {"user_id": user["id"], "display_name": user["display_name"], "token": token})
+
+    def create_payment(self, db, user, body):
+        to_handle = required_string(body, "to_handle")
+        value = amount(body)
+        payment_note = note(body)
+        payment_visibility = visibility(body)
+        if not HANDLE_PATTERN.fullmatch(to_handle):
+            validation("Invalid handle")
+        if to_handle == user["handle"]:
+            raise APIError(422, "self_payment")
+        target = db.execute("SELECT * FROM users WHERE handle = ?", (to_handle,)).fetchone()
+        if target is None:
+            raise APIError(404, "not_found")
+        if user["balance"] < value:
+            raise APIError(409, "insufficient_funds")
+        if target["balance"] + value > MAX_BALANCE:
+            validation("Balance limit exceeded")
+        db.execute("UPDATE users SET balance = balance - ? WHERE id = ?", (value, user["id"]))
+        db.execute("UPDATE users SET balance = balance + ? WHERE id = ?", (value, target["id"]))
+        payment_id = new_id("p_")
+        db.execute(
+            "INSERT INTO payments(id, from_user_id, to_user_id, amount, note, visibility, request_id, settlement_id, created_at) VALUES(?, ?, ?, ?, ?, ?, NULL, NULL, ?)",
+            (payment_id, user["id"], target["id"], value, payment_note, payment_visibility, timestamp()),
+        )
+        row = db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone()
+        return payment_body(db, row)
+
+    def create_request(self, db, user, body):
+        payer_handle = required_string(body, "payer_handle")
+        value = amount(body)
+        request_note = note(body)
+        if not HANDLE_PATTERN.fullmatch(payer_handle):
+            validation("Invalid handle")
+        if payer_handle == user["handle"]:
+            raise APIError(422, "self_request")
+        payer = db.execute("SELECT * FROM users WHERE handle = ?", (payer_handle,)).fetchone()
+        if payer is None:
+            raise APIError(404, "not_found")
+        request_id = new_id("rq_")
+        db.execute(
+            "INSERT INTO requests(id, requester_id, payer_id, amount, note, status, payment_id, created_at) VALUES(?, ?, ?, ?, ?, 'pending', NULL, ?)",
+            (request_id, user["id"], payer["id"], value, request_note, timestamp()),
+        )
+        row = db.execute("SELECT * FROM requests WHERE id = ?", (request_id,)).fetchone()
+        return request_body(db, row)
+
+    def pay_request(self, db, user, body, request_id):
+        payment_visibility = visibility(body)
+        request = db.execute("SELECT * FROM requests WHERE id = ?", (request_id,)).fetchone()
+        if request is None:
+            raise APIError(404, "not_found")
+        if request["payer_id"] != user["id"]:
+            raise APIError(403, "forbidden")
+        if request["status"] != "pending":
+            raise APIError(409, "request_not_pending")
+        if user["balance"] < request["amount"]:
+            raise APIError(409, "insufficient_funds")
+        receiver = db.execute("SELECT * FROM users WHERE id = ?", (request["requester_id"],)).fetchone()
+        if receiver is None:
+            raise APIError(404, "not_found")
+        if receiver["balance"] + request["amount"] > MAX_BALANCE:
+            validation("Balance limit exceeded")
+        db.execute("UPDATE users SET balance = balance - ? WHERE id = ?", (request["amount"], user["id"]))
+        db.execute("UPDATE users SET balance = balance + ? WHERE id = ?", (request["amount"], receiver["id"]))
+        payment_id = new_id("p_")
+        db.execute(
+            "INSERT INTO payments(id, from_user_id, to_user_id, amount, note, visibility, request_id, settlement_id, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, NULL, ?)",
+            (payment_id, user["id"], receiver["id"], request["amount"], request["note"], payment_visibility, request_id, timestamp()),
+        )
+        db.execute("UPDATE requests SET status = 'paid', payment_id = ? WHERE id = ?", (payment_id, request_id))
+        row = db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone()
+        return payment_body(db, row)
+
+    def transition_request(self, db, user, request_id, action):
+        desired_status = "declined" if action == "decline" else "cancelled"
+        owner_field = "payer_id" if action == "decline" else "requester_id"
+        with write_transaction(db):
+            user = self.current_user(db, user)
+            request = db.execute("SELECT * FROM requests WHERE id = ?", (request_id,)).fetchone()
+            if request is None:
+                raise APIError(404, "not_found")
+            if request[owner_field] != user["id"]:
+                raise APIError(403, "forbidden")
+            if request["status"] not in ("pending", desired_status):
+                raise APIError(409, "request_not_pending")
+            if request["status"] == "pending":
+                db.execute("UPDATE requests SET status = ? WHERE id = ?", (desired_status, request_id))
+            updated = db.execute("SELECT * FROM requests WHERE id = ?", (request_id,)).fetchone()
+            result = request_body(db, updated)
+        self.send_json(200, result)
+
+    def list_requests(self, db, user):
+        query, limit, offset = self.pagination()
+        direction = query.get("direction", [None])[-1]
+        status = query.get("status", [None])[-1]
+        if direction not in (None, "incoming", "outgoing"):
+            validation("Invalid direction")
+        if status not in (None, "pending", "paid", "declined", "cancelled"):
+            validation("Invalid status")
+        clauses = []
+        parameters = []
+        if direction == "incoming":
+            clauses.append("payer_id = ?")
+            parameters.append(user["id"])
+        elif direction == "outgoing":
+            clauses.append("requester_id = ?")
+            parameters.append(user["id"])
+        else:
+            clauses.append("(requester_id = ? OR payer_id = ?)")
+            parameters.extend((user["id"], user["id"]))
+        if status is not None:
+            clauses.append("status = ?")
+            parameters.append(status)
+        rows = db.execute(
+            "SELECT * FROM requests WHERE " + " AND ".join(clauses) + " ORDER BY created_at DESC, seq DESC LIMIT ? OFFSET ?",
+            (*parameters, limit + 1, offset),
+        ).fetchall()
+        return {"requests": [request_body(db, row) for row in rows[:limit]], "has_more": len(rows) > limit}
+
+    def activity(self, db, user):
+        _, limit, offset = self.pagination()
+        rows = db.execute(
+            "SELECT * FROM payments WHERE visibility = 'public' OR from_user_id = ? OR to_user_id = ? ORDER BY created_at DESC, seq DESC LIMIT ? OFFSET ?",
+            (user["id"], user["id"], limit + 1, offset),
+        ).fetchall()
+        return {"payments": [payment_body(db, row) for row in rows[:limit]], "has_more": len(rows) > limit}
 
     def do_GET(self):
         self.dispatch()

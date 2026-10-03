@@ -192,8 +192,8 @@ def note(obj, fixture=False):
 
 
 def visibility(obj, fixture=False):
-    value = optional_string(obj, "visibility", "public", fixture=fixture)
-    if value not in ("public", "private"):
+    value = obj.get("visibility", "public")
+    if not isinstance(value, str) or value not in ("public", "private"):
         validation("Invalid visibility")
     return value
 
@@ -279,7 +279,7 @@ def validate_fixture(fixture):
         payment_id = fixture_record_id(item)
         source = required_string(item, "from_user_id", fixture=True)
         target = required_string(item, "to_user_id", fixture=True)
-        value = amount(item)
+        value = amount(item, minimum=0)
         if source not in user_ids or target not in user_ids or source == target or payment_id in payment_ids:
             validation("Invalid payment")
         payment_ids.add(payment_id)
