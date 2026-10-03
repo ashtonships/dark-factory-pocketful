@@ -26,3 +26,10 @@ Updated by Coordinator. Ledger: `ledger/pocketful.md`. Time box: final report by
 ## Checks
 
 - Checker checks on main at 72c24d2: W-1 59, W-2 97, W-3 27, W-4 42 (items in force: checker/items.json). 247/254 stage-1 entries referenced; unreferenced: 2, 3 (process), 23, 32 (harness isolated mode), 35 (from stage 2), 219, 251 (permissions).
+
+## Seeded faults
+
+- W-5 at 77595cc, seed 5 (Adversary, `adversary/pocketful/measure.py --revision 77595cc --item 5`, test = Builder-Two's selftest 38 cases, as Checker had no W-5 check yet): 20 valid, 13 caught, 7 survived (65%). Report /Volumes/SSD/overflow/darkfactory/pf-w5-77595cc-mutants.json.
+  - Survivor 11 (key generation radix in the getRandomValues fallback collapses distinct entropy into one key): a real blind spot in the checks; sent to Builder-Two as a selftest gap (keys from different entropy must differ). Product at 77595cc is correct.
+  - Survivors 1, 2, 4, 9, 14 and 19 are equivalent or outside the input domain per Adversary's triage (reason text, copy, zero-total split, fallback entropy length, negative formatting, globalThis detection).
+  - The seventh survivor's triage is pending.
