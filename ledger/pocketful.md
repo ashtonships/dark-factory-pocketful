@@ -37,6 +37,16 @@ quotes” (the quote is what `tools/spec_coverage.py` matches). `N/A:` lines are
   stored, including its idempotency key.
 - **D-10 Note length**: 200 characters means 200 Unicode code points.
 
+- **D-11 Authorize form placement**: the spec ties the `authorize-*` testids to no route; the form appears on both
+  `/` (where the money forms live) and `/authorizations`. Reason: either reading of the spec is then satisfied.
+- **D-12 Upgrade format**: export keeps `format_version: 1`; a stage-2 import accepts a stage-1 export unchanged
+  (absent authorisations mean none) and preserves tokens, keys and original responses.
+- **D-13 Expiry**: an authorisation is expired when `expires_at` <= now, judged at every read and write; an
+  authorisation expired by the clock is never shown as open and gets no capture or void button.
+- **D-14 Capture precedence**: auth → body → key resolution → 422 amount type/range → 404 → 403 → 409
+  `authorization_not_open` (status captured/voided/expired) → 409 `authorization_expired` (stored open, clock past
+  expiry) → 422 `capture_exceeds_authorization`. Reason: the remainder only exists for an open authorisation.
+
 ## Work items (stage 1)
 
 | Item | Seat | Entries | Scope |
@@ -46,7 +56,10 @@ quotes” (the quote is what `tools/spec_coverage.py` matches). `N/A:` lines are
 | W-3 | Builder | 205–216, 221–231 | Splits and the equal-split rule |
 | W-4 | Builder | 232–273 | Export/import and atomic net settlements |
 | W-5 | Builder-Two | stage-2 UI entries (added at stage 2) | Client core for the screens, outside stage folders until stage 2 opens |
-| W-D | Builder | stage-2 product and visual direction | Three concepts per screen, picked by Checker; starts when W-1 is accepted |
+| W-D | Builder | 1016–1027 | Three concepts per screen, picked by Checker; starts when W-1 is accepted |
+| W-6 | Builder-Two | stage-2 UI entries (W-7 list) | Screen structure and behaviour, unstyled, in ui-core/ |
+| W-7 | Builder-Two | 1005–1006, 1008–1012, 1015–1027, 1029–1101 (UI), 1203, 1205–1221 | Screens in stage-2/ styled to the pick |
+| W-8 | Builder | 1001–1002, 1013–1014, 1095, 1102–1202, 1204, 1222 | Stage-2 server: copy of frozen stage-1/, holds and captures, available-based funds, HTML routing, static UI, stage-1 import |
 
 ## Practice-run lessons (made entries so the same faults cannot recur)
 
@@ -55,6 +68,16 @@ quotes” (the quote is what `tools/spec_coverage.py` matches). `N/A:` lines are
 9003. “Unparseable body, or a field of the wrong JSON type” — §5 · W-1 · `NaN`, `Infinity`, `-Infinity`, invalid UTF-8 and UTF-16/32 bodies are 400 `malformed_request`; duplicate keys follow the last value.
 
 ## Findings (added as they arrive)
+
+Adversary pre-mortem for stage 1 (Sat 3 Oct). These five risks are entries; checks and attacks assert state after failed operations and across imports, not codes alone.
+
+9004. “The sum of wallet balances always equals the total seeded by the last `POST /_test/reset`.” — pre-mortem 1 · W-2, W-4 · Money writes, request-state changes and receipt inserts share one transaction under 50 competing calls (also entries 10, 11).
+9005. “For concurrent identical requests with an unused key, exactly one returns 201.” — pre-mortem 2 · W-2 · Key scope, canonical JSON, replay precedence and no caching of failed keys, including simultaneous first use and retries after pay/cancel (entries 131–148).
+9006. “Reserve 400 `malformed_request` for a body that does not parse or a field of the wrong type.” — pre-mortem 3 · W-1 · No float/bool coercion, note length in code points, strict query-integer grammar, keep-alive body consumption (9001–9003).
+9007. “A share of `0` is legal and still produces a request for that participant.” — pre-mortem 4 · W-3 · Zero shares, caller omitted, remainder allocation by order; conservation holds after zero requests are paid.
+9008. “Either all movements commit together or none do; failed validation claims no idempotency key and creates no payment or revision.” — pre-mortem 5 · W-4 · Settlements atomic, not sequential; export/import keeps tokens, operator permissions and original replay receipts.
+9009. “Unknown outcomes are not confirmed rejections.” — finding PF-A1 (Adversary, W-5 77595cc / W-6 73beaa0) · W-5, W-6 · A 2xx with an empty, `null` or unparseable body is an uncertain outcome: pay-uncertain shows, the form and key are kept, nothing throws. Status: open, with Builder-Two.
+9010. “Changing a field makes the next submission a new payment request.” — finding PF-A2 (Adversary, W-5 77595cc / W-6 73beaa0) · W-5, W-6 · The intent identity is the raw text of every form field, not the normalised body: 15 → 15.00, bob → @bob or added spaces get a new key and a new payment; an unchanged form keeps its key. Status: open, with Builder-Two.
 
 ## Stage 1 entries
 N/A: “This stage defines the initial service and its API.” — stage-1.md line 3: stage introduction, no behaviour
@@ -330,3 +353,229 @@ N/A: “Body:” — stage-1.md line 574: label for the example body
 271. “Replays return 200 with the original complete response.” — stage-1.md:597 · W-4
 272. “This is the fifth idempotent write path in stage 1.” — stage-1.md:598 · W-4
 273. “A reset/import must preserve settlement operator permissions, original payments, requests, settlement membership and retry responses.” — stage-1.md:599 · W-4
+
+
+## Stage 2 entries
+
+1001. “The stage-1 requirements continue to apply, with the additions below.” — stage-2.md:3 · W-8
+1002. “Numbered section references such as §5 and §7 refer to `stage-1.md`.” — stage-2.md:3 · W-8
+N/A: “Users can manage payments, requests and bill splits in a browser.” — stage-2.md line 6: scope summary; behaviour has its own entries
+N/A: “They can also reserve money for a recipient to collect later, in one or more captures.” — stage-2.md line 6: scope summary; see 1102-1106
+1005. “The following screens must be reachable by URL.” — stage-2.md:9 · W-7
+1006. “Other screens must be reachable through the UI.” — stage-2.md:9 · W-7
+N/A: “Server-side and client-side rendering are both permitted.” — stage-2.md line 10: permission, no obligation
+1008. “`/` | Balance, pay form, request form and the activity feed” — stage-2.md:14 · W-7
+1009. “`/requests` | Incoming and outgoing requests, with pay, decline and cancel” — stage-2.md:15 · W-7
+1010. “`/split` | Split form” — stage-2.md:16 · W-7
+1011. “`/signup` | Signup” — stage-2.md:17 · W-7
+1012. “`/login` | Login” — stage-2.md:18 · W-7
+1013. “The browser and the API share `/requests`.” — stage-2.md:20 · W-8
+1014. “Return the UI for `Accept: text/html`; API requests without that header receive JSON.” — stage-2.md:20 · W-8 · Builder serves the UI files listed by Builder-Two (ui-core/README.md) for Accept containing text/html; everything else stays JSON.
+1015. “The UI must expose the `data-testid` attributes listed below for integration testing.” — stage-2.md:23 · W-7
+1016. “Additional elements are permitted, and the visual implementation is the team's choice subject to the product-quality requirements below.” — stage-2.md:24 · W-D, W-7
+1017. “The browser experience must feel like a coherent, presentation-ready consumer finance product, not a test harness with controls attached.” — stage-2.md:29 · W-D, W-7
+1018. “Aim for a calm, trustworthy character.” — stage-2.md:30 · W-D, W-7
+1019. “Available funds must be the clearest monetary value once holds exist, with total and held funds visibly secondary.” — stage-2.md:30 · W-D, W-7
+1020. “Payments, requests, splits and authorisations should be easy to scan, and status, direction, privacy and money movement should be understandable without interpreting raw API data.” — stage-2.md:32 · W-D, W-7
+1021. “Use a consistent visual system for typography, spacing, colour, controls and feedback.” — stage-2.md:35 · W-D, W-7
+1022. “Primary actions must be easy to identify.” — stage-2.md:35 · W-D, W-7
+1023. “Available, held, pending, loading, successful, refused and uncertain states must be visually distinct as well as satisfying the behavioural requirements below.” — stage-2.md:36 · W-D, W-7
+1024. “Format people, amounts and timestamps for people first; expose technical identifiers only where they help the user.” — stage-2.md:38 · W-D, W-7
+1025. “The required flows must remain clear and usable at a 375 CSS-pixel viewport and at conventional desktop widths, without horizontal page scrolling.” — stage-2.md:41 · W-D, W-7
+1026. “Inputs need visible labels, keyboard focus must be apparent, and text and controls need sufficient contrast.” — stage-2.md:42 · W-D, W-7
+1027. “Provide considered empty, loading and error states, and keep navigation consistent across the required routes.” — stage-2.md:43 · W-D, W-7
+N/A: “A custom illustration, brand asset or exact visual match to a reference is not required.” — stage-2.md line 44: permission, no obligation
+1029. “`signup-email`, `signup-password`, `signup-display-name` | Inputs” — stage-2.md:51 · W-7
+1030. “`signup-submit` | Button” — stage-2.md:52 · W-7
+1031. “`login-email`, `login-password`, `login-submit` | Inputs and button” — stage-2.md:53 · W-7
+1032. “`auth-error` | Error message. Present only when there is one” — stage-2.md:54 · W-7
+1033. “`current-user` | Visible on every screen when signed in. Text contains the display name” — stage-2.md:55 · W-7
+1034. “`current-handle` | Text is exactly the caller's handle, with no `@` and no surrounding words” — stage-2.md:56 · W-7
+1035. “`logout-button` | Button” — stage-2.md:57 · W-7
+1036. “`wallet-balance` | Text is exactly the formatted amount. Carries `data-amount="{minor units}"`” — stage-2.md:63 · W-7
+1037. “`pay-handle`, `pay-amount`, `pay-note` | Inputs. `pay-amount` is a **decimal** string as a person would type it, e.g. `15.00`” — stage-2.md:64 · W-7
+1038. “`pay-visibility` | Selects `public` or `private`. Option values are those two strings” — stage-2.md:65 · W-7
+1039. “`pay-submit` | Button” — stage-2.md:66 · W-7
+1040. “`pay-error` | Error message, when the payment is refused — including insufficient funds” — stage-2.md:67 · W-7
+1041. “`request-handle`, `request-amount`, `request-note`, `request-submit` | The request form” — stage-2.md:68 · W-7
+1042. “`request-error` | Error message, when the request is refused” — stage-2.md:69 · W-7
+1043. “Keep the pay form's values after success.” — stage-2.md:71 · W-7
+1044. “Submitting it again without changing a field must not send another payment: `wallet-balance` falls once, the feed contains one payment and `pay-error` is absent.” — stage-2.md:71 · W-7
+1045. “Changing a field makes the next submission a new payment request.” — stage-2.md:73 · W-7
+1046. “Retries follow §7.” — stage-2.md:74 · W-7
+1047. “**Formatted amount.** `wallet-balance` is the decimal with exactly `minor_units` decimal places, a single space, then the currency code: `100.00 EUR`.” — stage-2.md:76 · W-7
+1048. “For a `minor_units` of `0` there is no decimal point at all: `1200 JPY`.” — stage-2.md:77 · W-7
+1049. “Balances are never negative, so there is no sign.” — stage-2.md:78 · W-7
+1050. “The form accepts decimal amounts and submits minor units to the API.” — stage-2.md:80 · W-7
+1051. “With `minor_units: 2`, `15.00` and `15` both submit `1500`; `15.5` submits `1550`.” — stage-2.md:80 · W-7
+1052. “Nonnumeric input or more than `minor_units` decimal places must show the form's error element without sending a request.” — stage-2.md:81 · W-7
+1053. “For example, `15.005` is rejected rather than rounded.” — stage-2.md:83 · W-7
+1054. “`activity-list` | Container. Its children are newest first in the DOM” — stage-2.md:89 · W-7
+1055. “`activity-item-{payment_id}` | One per visible payment. Carries `data-visibility="public"` or `data-visibility="private"`” — stage-2.md:90 · W-7
+1056. “`activity-parties-{payment_id}` | Text contains both handles” — stage-2.md:91 · W-7
+1057. “`activity-amount-{payment_id}` | Text is exactly the formatted amount” — stage-2.md:92 · W-7
+1058. “`activity-note-{payment_id}` | Text is exactly the note. Present even when the note is empty” — stage-2.md:93 · W-7
+1059. “`empty-activity` | Shown instead of the list when nothing is visible” — stage-2.md:94 · W-7
+1060. “Two payments with equal timestamps may appear in either order.” — stage-2.md:96 · W-7
+1061. “`incoming-list`, `outgoing-list` | Containers” — stage-2.md:102 · W-7
+1062. “`request-item-{request_id}` | One per request. Carries `data-status="{status}"`” — stage-2.md:103 · W-7
+1063. “`request-amount-{request_id}` | Text is exactly the formatted amount” — stage-2.md:104 · W-7
+1064. “`request-pay-{request_id}` | Button. Present only on a `pending` incoming request” — stage-2.md:105 · W-7
+1065. “`request-decline-{request_id}` | Button. Present only on a `pending` incoming request” — stage-2.md:106 · W-7
+1066. “`request-cancel-{request_id}` | Button. Present only on a `pending` outgoing request” — stage-2.md:107 · W-7
+1067. “`request-error` | Shown when a pay, decline or cancel is refused” — stage-2.md:108 · W-7
+1068. “`empty-requests` | Shown when both lists are empty” — stage-2.md:109 · W-7
+1069. “`split-amount` | Decimal input, same rule as `pay-amount`” — stage-2.md:115 · W-7
+1070. “`split-handles` | Text input: handles separated by commas, in order” — stage-2.md:116 · W-7
+1071. “`split-note`, `split-submit` | Input and button” — stage-2.md:117 · W-7
+1072. “`split-preview` | Shows the computed shares before submitting. Contains one `split-share-{handle}` per participant” — stage-2.md:118 · W-7
+1073. “`split-share-{handle}` | Text is exactly the formatted share amount” — stage-2.md:119 · W-7
+1074. “`split-error` | Error message, when the split is refused” — stage-2.md:120 · W-7
+1075. “`split-preview` must show the shares the server would compute, by the rule in `stage-1.md` §9, before anything is posted.” — stage-2.md:122 · W-7
+1076. “The preview and submitted split must have identical shares.” — stage-2.md:123 · W-7
+1077. “After any successful action, the balance, the feed and the request lists on the same page must show the new state without a manual reload.” — stage-2.md:125 · W-7
+1078. “Navigation must wait for the write to succeed before it refreshes the data.” — stage-2.md:126 · W-7
+N/A: “Any mechanism is fine, including a full navigation.” — stage-2.md line 127: permission: any refresh mechanism
+1080. “**There is no live-update requirement here** — another client may change state, but this browser need only refresh after its own action or an explicit refresh.” — stage-2.md:127 · W-7
+1081. “Add `wallet-refresh`, a button on `/` that refreshes the balance and feed without clearing” — stage-2.md:133 · W-7
+1082. “the pay form.” — stage-2.md:134 · W-7
+1083. “**Latest refresh wins:** a delayed earlier read must not overwrite a later refresh, including when responses arrive out of order.” — stage-2.md:134 · W-7
+1084. “Another client may spend the balance after this browser reads it.” — stage-2.md:136 · W-7
+1085. “A refused payment shows” — stage-2.md:136 · W-7
+1086. “`pay-error`, refreshes the balance/feed, and preserves all pay inputs.” — stage-2.md:137 · W-7
+1087. “A request cancelled elsewhere while its pay button is visible must show `request-error` when payment is refused and refresh the request list so the stale pay button disappears.” — stage-2.md:137 · W-7
+1088. “If a payment response is lost, including after `POST /payments` commits, show `pay-uncertain`” — stage-2.md:140 · W-7
+1089. “(nonempty text), not `pay-error`.” — stage-2.md:141 · W-7
+1090. “Keep the unchanged form retryable with the **same key and body**.” — stage-2.md:141 · W-7
+1091. “Successful retry removes both error/uncertainty elements, refreshes the balance and feed, and moves money exactly once.” — stage-2.md:142 · W-7
+1092. “Unknown outcomes are not confirmed rejections.” — stage-2.md:143 · W-7
+N/A: “No background polling, live synchronization, or recovery across page reloads is required.” — stage-2.md line 145: permission: no polling or reload recovery required
+1094. “The same balance refresh rules apply to the available and held amounts introduced below.” — stage-2.md:146 · W-7
+1095. “A stage-2 service must accept an export produced by the same team's stage-1 service.” — stage-2.md:150 · W-8 · Decision D-12: export keeps format_version 1; stage-2 import accepts a stage-1 export (no authorizations means none; tokens, keys and responses preserved).
+1096. “A browser signed in before that export/import upgrade must remain signed in afterwards.” — stage-2.md:150 · W-7
+1097. “Existing pending requests remain payable through the request screen.” — stage-2.md:152 · W-7
+1098. “A payment whose response was lost before export remains retryable after import with the same body and key; the UI must recover the original payment and refresh the imported balance.” — stage-2.md:152 · W-7
+N/A: “These requirements apply when import completes between browser requests; migration during an in-flight request is not required.” — stage-2.md line 154: permission: no in-flight migration required
+N/A: “No page reload or new screen is required.” — stage-2.md line 156: permission
+1101. “The form and pending retry identity must survive the upgrade.” — stage-2.md:156 · W-7
+1102. “A payment may be **authorised** now and **captured** later, for the full amount or less.” — stage-2.md:161 · W-8
+1103. “An authorisation places a *hold* on the payer's wallet: it reserves money without moving it.” — stage-2.md:161 · W-8
+1104. “Capturing moves the money; a final capture also releases whatever was not captured.” — stage-2.md:162 · W-8
+1105. “Nonfinal captures keep the remainder held.” — stage-2.md:163 · W-8
+1106. “An open authorisation expires and releases its remainder on its own.” — stage-2.md:164 · W-8
+1107. “The sum of all wallet `total` values always equals the total seeded by the last reset.” — stage-2.md:166 · W-8 · Invariant, checked after every concurrency attack.
+1108. “A hold moves no money; payments, settlements and captures transfer money between wallets.” — stage-2.md:167 · W-8
+1109. “`available = total − held` must never be negative.” — stage-2.md:168 · W-8 · Invariant: available never negative, including transiently.
+1110. “Held funds cannot fund new payments,” — stage-2.md:168 · W-8
+1111. “authorizations or settlement net debits.” — stage-2.md:169 · W-8
+1112. “Captures may spend the money reserved for them.” — stage-2.md:169 · W-8
+1113. “Cumulative captures must not exceed the authorized amount.” — stage-2.md:170 · W-8
+1114. “Each idempotent capture moves” — stage-2.md:170 · W-8
+1115. “money once.” — stage-2.md:171 · W-8
+1116. “A closed hold cannot be captured again.” — stage-2.md:171 · W-8
+N/A: “The existing API changes as follows:” — stage-2.md line 173: connective, introduces 1118-1132
+1118. “`GET /me` keeps `balance`, and `balance` **equals `total`**.” — stage-2.md:175 · W-8
+1119. “`available` and `held` are new” — stage-2.md:175 · W-8
+1120. “fields beside it.” — stage-2.md:176 · W-8
+1121. “With no open holds, `balance`, `total` and `available` agree and `held` is zero, and every earlier behaviour is unchanged.” — stage-2.md:176 · W-8
+1122. “`POST /payments` remains an immediate transfer.” — stage-2.md:178 · W-8
+1123. “It must not leave an intermediate hold” — stage-2.md:178 · W-8
+1124. “or require a separate capture.” — stage-2.md:179 · W-8
+1125. “Every `409 insufficient_funds` in stage 1 — on `POST /payments`,” — stage-2.md:180 · W-8
+1126. “`POST /requests/{id}/pay` and settlements — is now evaluated against `available`.” — stage-2.md:181 · W-8
+1127. “With no open holds, the result is unchanged.” — stage-2.md:182 · W-8
+1128. “Paying a request remains immediate.” — stage-2.md:183 · W-8
+N/A: “Authorizing a request is out of scope.” — stage-2.md line 183: out-of-scope statement
+1130. “`POST /splits` is unchanged.” — stage-2.md:184 · W-8
+1131. “There are now seven idempotent write paths: stage 1's five, authorizations and captures.” — stage-2.md:185 · W-8
+1132. “The same replay rules apply independently to each.” — stage-2.md:186 · W-8
+N/A: “The fixture gains a service-wide default lifetime and an `authorizations` array.” — stage-2.md line 190: describes the fixture example; rules are 1134-1150
+1134. “`authorization_ttl_seconds` applies to every authorisation created through the API.” — stage-2.md:206 · W-8
+1135. “It defaults” — stage-2.md:206 · W-8
+1136. “to 600 when omitted.” — stage-2.md:207 · W-8
+1137. “If supplied, it must be a positive integer number of seconds.” — stage-2.md:207 · W-8
+1138. “Seeded authorisations carry their own absolute `expires_at` instead.” — stage-2.md:208 · W-8
+1139. “A user's seeded `balance` is still `total`.” — stage-2.md:209 · W-8
+1140. “**`available` is derived, never seeded** — the service” — stage-2.md:209 · W-8
+1141. “subtracts the seeded open holds itself.” — stage-2.md:210 · W-8
+1142. “A sum of seeded unexpired open holds larger than that user's `balance` is a reset error:” — stage-2.md:211 · W-8
+1143. “`422 validation_failed` from `POST /_test/reset`, changing nothing, exactly like a negative seeded balance.” — stage-2.md:212 · W-8
+1144. “Seeded `status` is `open`, `captured`, `voided` or `expired`.” — stage-2.md:214 · W-8
+1145. “Only `open` holds anything.” — stage-2.md:214 · W-8
+1146. “An earlier fixture may omit `authorizations` altogether; omission means an empty list.” — stage-2.md:215 · W-8
+1147. “An authorization whose `expires_at` is at or before now is `expired` and holds no funds.” — stage-2.md:217 · W-8 · Expiry is computed from the clock at every read and write, never by a background job alone.
+1148. “Reads and writes must reflect expiry even if no request occurred at the deadline.” — stage-2.md:218 · W-8
+1149. “`GET /authorizations` must show `status: "expired"`, and `GET /me` must include the released remainder in `available`.” — stage-2.md:219 · W-8
+1150. “Seeded expiry times are at least an hour from reset time, in the past or future; newly created authorizations may have shorter lifetimes.” — stage-2.md:220 · W-8
+1151. “`balance` and `total` are always equal.” — stage-2.md:234 · W-8
+1152. “`held` is the sum of open holds, and `available` is `total − held`, never negative.” — stage-2.md:234 · W-8
+1153. “`Idempotency-Key` is required.” — stage-2.md:239 · W-8
+1154. “The caller is the payer.” — stage-2.md:239 · W-8
+1155. “`note` and `visibility` are optional with the same defaults as `POST /payments`.” — stage-2.md:245 · W-8
+1156. “`expires_at` is `created_at` plus `authorization_ttl_seconds`.” — stage-2.md:265 · W-8
+1157. “The caller's `available` is below `amount` | 409 `insufficient_funds`” — stage-2.md:269 · W-8
+1158. “`amount` below 1, above 1000000000, or not an integer | 422 `validation_failed`” — stage-2.md:270 · W-8
+1159. “`to_handle` is the caller's own handle | 422 `self_payment`” — stage-2.md:271 · W-8
+1160. “`note` over 200 characters, or `visibility` neither `public` nor `private` | 422 `validation_failed`” — stage-2.md:272 · W-8
+1161. “No user has that handle | 404 `not_found`” — stage-2.md:273 · W-8
+1162. “An open authorisation is **not** a feed item and never appears in `GET /activity`.” — stage-2.md:275 · W-8
+1163. “`Idempotency-Key` is required.” — stage-2.md:279 · W-8
+1164. “Only the receiver (the `to` party) may capture.” — stage-2.md:279 · W-8
+1165. “`amount` is optional and defaults to the authorisation's remaining amount.” — stage-2.md:285 · W-8
+1166. “As on `POST /requests/{id}/pay`, **a replay must send the identical body** — `{}` and `{"amount": 2000}` are different JSON values even when they mean the same capture, so reusing a key across the two is 409 `idempotency_key_reuse` per `stage-1.md` §7.” — stage-2.md:285 · W-8
+1167. “Returns `201` with the created **payment**, in exactly the shape `POST /payments` returns, with `authorization_id` set to this authorisation and `request_id: null`.” — stage-2.md:290 · W-8
+1168. “The payment's `amount` is the captured amount; its `note` and `visibility` are copied from the authorisation; it appears in the activity feed by the ordinary visibility rule.” — stage-2.md:291 · W-8
+1169. “Payments created without an authorisation carry `authorization_id: null`; their existing `request_id` semantics are unchanged.” — stage-2.md:293 · W-8
+1170. “By default the authorisation becomes `captured`, carries `captured_amount` and `payment_id`, and **releases the uncaptured remainder immediately**: capturing 1500 of 2000 returns 500 to the payer's `available` in the same step.” — stage-2.md:296 · W-8
+1171. “**Default: one final capture per authorisation.** A second capture after a final capture is `409 authorization_not_open`.” — stage-2.md:300 · W-8 · Decision D-14: capture order: auth, body, key resolution, 422 amount type/range, 404, 403, 409 authorization_not_open, 409 authorization_expired, 422 capture_exceeds_authorization.
+1172. “**Extended capture mode.** To keep the remainder held, send `{"amount": 700, "final": false}`.” — stage-2.md:303 · W-8
+1173. “`final` is boolean, default `true`, so earlier single-capture requests retain their behavior.” — stage-2.md:304 · W-8
+1174. “With `final: false` and an uncaptured remainder, status stays `open`; further captures are allowed up to that remainder.” — stage-2.md:305 · W-8
+1175. “Capturing the entire remainder closes it even with `final: false`.” — stage-2.md:306 · W-8
+1176. “A final capture closes it and releases any remainder.” — stage-2.md:307 · W-8
+1177. “`capture_exceeds_authorization` compares with the **remaining** amount; omitted amount defaults to that remainder.” — stage-2.md:307 · W-8
+1178. “`captured_amount` is cumulative; `payment_id` is the latest capture; `payment_ids` lists every capture in order.” — stage-2.md:308 · W-8
+1179. “Every authorization response adds `remaining_amount`: the amount still held, zero when closed.” — stage-2.md:310 · W-8
+1180. “Void and expiry can close a partially captured authorization, release only the remainder, and preserve all capture records.” — stage-2.md:311 · W-8
+1181. “New fields do not change idempotency body equality.” — stage-2.md:312 · W-8
+1182. “The authorisation is not `open` | 409 `authorization_not_open`” — stage-2.md:316 · W-8
+1183. “`expires_at` is at or before now | 409 `authorization_expired`” — stage-2.md:317 · W-8 · D-14: a stored-open authorisation past expires_at is authorization_expired; voided/captured/expired-status is authorization_not_open.
+1184. “`amount` above the authorisation's uncaptured remainder | 422 `capture_exceeds_authorization`” — stage-2.md:318 · W-8
+1185. “`amount` below 1, or not an integer | 422 `validation_failed`” — stage-2.md:319 · W-8
+1186. “The caller is not the receiver | 403 `forbidden`” — stage-2.md:320 · W-8
+1187. “Unknown authorisation | 404 `not_found`” — stage-2.md:321 · W-8
+1188. “**Only the payer may void** — the `from` party releasing their own hold.” — stage-2.md:325 · W-8
+1189. “No idempotency key, like decline and cancel.” — stage-2.md:325 · W-8
+1190. “`200` with the authorisation, `status: "voided"`, the hold released.” — stage-2.md:328 · W-8
+1191. “Voiding an already-voided authorisation is `200` with the current state.” — stage-2.md:328 · W-8
+1192. “A `captured` or `expired` one is `409 authorization_not_open`.” — stage-2.md:329 · W-8
+1193. “For an existing authorization, capture and void return 403 `forbidden` when the caller is not the permitted party, including callers who are neither party.” — stage-2.md:332 · W-8
+1194. “`GET /authorizations` returns only authorizations involving the caller.” — stage-2.md:333 · W-8
+1195. “Authorisations where the caller is the payer or the receiver, and no others.” — stage-2.md:342 · W-8
+1196. “Newest first by `created_at`.” — stage-2.md:342 · W-8
+1197. “`direction` is `outgoing` (the caller is the payer), `incoming` (the caller is the receiver), or” — stage-2.md:345 · W-8
+1198. “absent for both.” — stage-2.md:346 · W-8
+1199. “`status` is one of the four statuses, or absent for all.” — stage-2.md:347 · W-8
+1200. “An authorisation expired by the clock” — stage-2.md:347 · W-8
+1201. “matches `expired`, never `open`.” — stage-2.md:348 · W-8
+1202. “`limit`, `offset` and `has_more` behave exactly as on `GET /requests`.” — stage-2.md:349 · W-8
+1203. “A new route `/authorizations`, and the wallet gains two numbers.” — stage-2.md:353 · W-7
+1204. “The UI and the API share `/authorizations`: serve HTML for `Accept: text/html` and JSON otherwise, as for `/requests`.” — stage-2.md:353 · W-8
+1205. “`wallet-balance` | Formatted `total`, retaining the existing display and `data-amount`” — stage-2.md:358 · W-7
+1206. “`wallet-available` | Formatted `available`, with `data-amount`. **Present this as the headline number** — it is what the user can actually spend” — stage-2.md:359 · W-7
+1207. “`wallet-held` | Formatted `held`, with `data-amount`. Absent when `held` is zero” — stage-2.md:360 · W-7
+1208. “`authorize-handle`, `authorize-amount`, `authorize-note`, `authorize-visibility`, `authorize-submit` | The authorise form. Same input rules as the pay form” — stage-2.md:361 · W-7 · Decision D-11: the authorize form is on both / and /authorizations (the spec ties it to no route).
+1209. “`authorize-error` | Shown when the authorisation is refused, including insufficient available funds” — stage-2.md:362 · W-7
+1210. “`authorization-list` | Container on `/authorizations`. Children newest first in the DOM” — stage-2.md:363 · W-7
+1211. “`authorization-item-{authorization_id}` | Carries `data-status="{status}"`” — stage-2.md:364 · W-7
+1212. “`authorization-amount-{id}` | Text is exactly the formatted authorised amount” — stage-2.md:365 · W-7
+1213. “`authorization-captured-{id}` | Formatted captured amount. Present only when `status` is `captured`” — stage-2.md:366 · W-7
+1214. “`authorization-expires-{id}` | Text is the RFC 3339 `expires_at`” — stage-2.md:367 · W-7
+1215. “`authorization-capture-amount-{id}` | Decimal input, pre-filled with the remaining amount. Present only on an incoming `open` authorisation” — stage-2.md:368 · W-7 · An authorization expired by the clock is not open: no capture input.
+1216. “`authorization-capture-{id}` | Button. Present only on an incoming `open` authorisation” — stage-2.md:369 · W-7
+1217. “`authorization-void-{id}` | Button. Present only on an outgoing `open` authorisation” — stage-2.md:370 · W-7
+1218. “`authorization-error` | Shown when a capture or a void is refused” — stage-2.md:371 · W-7
+1219. “`empty-authorizations` | Shown when the list is empty” — stage-2.md:372 · W-7
+1220. “The UI must reflect seeded and newly created holds.” — stage-2.md:374 · W-7
+1221. “Show available funds as the user's spending balance, including immediately after reset with open holds.” — stage-2.md:374 · W-7
+1222. “Concurrent requests must produce the same results as executing them one at a time in some order, and the requirements above hold at every read.” — stage-2.md:379 · W-8
