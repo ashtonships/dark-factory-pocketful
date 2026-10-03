@@ -36,10 +36,19 @@
     eq(C.formatAmount(9007199254740991, 2, "EUR"), "90071992547409.91 EUR");
     eq(C.formatAmount(1000000000, 3, "BHD"), "1000000.000 BHD");
   });
-  test("money", "rejects non-integer amounts for formatting", FMT, function () {
-    var threw = false;
-    try { C.formatAmount(1.5, 2, "EUR"); } catch (e) { threw = true; }
-    ok(threw, "1.5 minor units must not format");
+  test("money", "rejects non-integer and out-of-range amounts for formatting", FMT, function () {
+    [1.5, NaN, Infinity, 9007199254740994, -9007199254740994, "1.5", null].forEach(function (v) {
+      var threw = false;
+      try { C.formatAmount(v, 2, "EUR"); } catch (e) { threw = true; }
+      ok(threw, String(v) + " must not format");
+    });
+  });
+  test("money", "the inclusive 2^53 boundary formats exactly (PF-A3)", "stage-1 §4 'no operation produces a balance outside ±2⁵³'; ledger 9011", function () {
+    eq(C.formatAmount(9007199254740992, 2, "EUR"), "90071992547409.92 EUR");
+    eq(C.formatAmount(9007199254740992, 0, "JPY"), "9007199254740992 JPY");
+    eq(C.formatAmount(9007199254740992, 3, "BHD"), "9007199254740.992 BHD");
+    eq(C.formatAmount(-9007199254740992, 2, "EUR"), "-90071992547409.92 EUR");
+    eq(C.formatAmount(9007199254740991, 2, "EUR"), "90071992547409.91 EUR");
   });
 
   var PARSE = "stage-2 'The form accepts decimal amounts and submits minor units'";
@@ -134,6 +143,38 @@
     ok(k4 !== k3, "different path is a different request");
     ok(ring.keyFor("request", "POST", "/payments", body) !== k3, "slots are independent");
   });
+  test("keys", "a raw edit is a new intent even when the body normalises the same (PF-A2)", "ledger 1045, 9010", function () {
+    var n = 0;
+    var ring = new C.KeyRing(function () { return "k" + (++n); });
+    var body = { to_handle: "bob", amount: 1500, note: "", visibility: "public" };
+    var raw = { "pay-handle": "bob", "pay-amount": "15", "pay-note": "", "pay-visibility": "public" };
+    var k1 = ring.keyFor("pay", "POST", "/payments", body, raw);
+    eq(ring.keyFor("pay", "POST", "/payments", body, Object.assign({}, raw)), k1, "unchanged raw form keeps the key");
+    var k2 = ring.keyFor("pay", "POST", "/payments", body, Object.assign({}, raw, { "pay-amount": "15.00" }));
+    ok(k2 !== k1, "15 -> 15.00 is new");
+    var k3 = ring.keyFor("pay", "POST", "/payments", body, Object.assign({}, raw, { "pay-amount": "15.00", "pay-handle": "@bob" }));
+    ok(k3 !== k2, "bob -> @bob is new");
+    var k4 = ring.keyFor("pay", "POST", "/payments", body, Object.assign({}, raw, { "pay-amount": "15.00", "pay-handle": "@bob " }));
+    ok(k4 !== k3, "trailing space is new");
+    eq(ring.keyFor("pay", "POST", "/payments", body, Object.assign({}, raw, { "pay-amount": "15.00", "pay-handle": "@bob " })), k4, "and stable once unchanged");
+  });
+  test("keys", "getRandomValues fallback: distinct entropy gives distinct, well-formed keys", "stage-1 §5 'Idempotency-Key 1 to 255 characters'; mutation survivor 11", function () {
+    function filled(byte) {
+      return { getRandomValues: function (bytes) { bytes.fill(byte); return bytes; } };   // no randomUUID
+    }
+    var seen = {};
+    [0, 1, 15, 16, 17, 127, 128, 254, 255].forEach(function (b) {
+      var k = C.newKey(filled(b));
+      var hex = (b + 256).toString(16).slice(1);
+      eq(k, new Array(17).join(hex), "byte " + b);
+      ok(/^[0-9a-f]{32}$/.test(k), "32 lowercase hex characters");
+      ok(!seen[k], "distinct for byte " + b);
+      seen[k] = true;
+    });
+    var bytes = 0;
+    var counting = { getRandomValues: function (a) { for (var i = 0; i < a.length; i++) a[i] = (bytes++) & 255; return a; } };
+    ok(C.newKey(counting) !== C.newKey(counting), "successive draws differ");
+  });
   test("keys", "generated keys are 1..255 characters and unique", "stage-1 §5 'Idempotency-Key 1 to 255 characters'", function () {
     var seen = {};
     for (var i = 0; i < 500; i++) {
@@ -154,7 +195,41 @@
     eq(C.classify(500, "").kind, "uncertain");
     eq(C.classify(503, '{"error":{"code":"x"}}').kind, "uncertain");
     eq(C.classify(201, "<html>").kind, "uncertain");
-    eq(C.classify(204, "").kind, "ok");
+  });
+  test("client", "a 2xx that is not the expected JSON object is uncertain (PF-A1)", "ledger 9009; stage-2 'Unknown outcomes are not confirmed rejections'", function () {
+    ["", "null", "[]", "\"ok\"", "42", "true", "{", "  "].forEach(function (t) {
+      eq(C.classify(201, t).kind, "uncertain", JSON.stringify(t));
+      eq(C.classify(200, t).kind, "uncertain", JSON.stringify(t));
+    });
+    eq(C.classify(204, "").kind, "uncertain");
+    eq(C.classify(201, "{}", "payment_id").kind, "uncertain", "missing expected field");
+    eq(C.classify(201, '{"payment_id":null}', "payment_id").kind, "uncertain", "null expected field");
+    eq(C.classify(201, '{"payment_id":"p_1"}', "payment_id").kind, "ok");
+    eq(C.classify(200, "{}").kind, "ok", "object without expectation");
+  });
+  test("client", "empty 201 after commit: uncertain, same-key retry moves money once (PF-A1)", "ledger 1088-1092, 9009", function () {
+    var srv = fakeServer();
+    var inner = srv.fetch, emptyNext = true;
+    srv.fetch = function (url, init) {
+      return inner(url, init).then(function (res) {
+        if (url === "/payments" && emptyNext) { emptyNext = false; return response(201, ""); }
+        return res;
+      });
+    };
+    var client = new C.ApiClient({ fetch: srv.fetch, tokens: new C.TokenStore(memoryStorage()) });
+    var form = new C.Submission();
+    var body = { to_handle: "bob", amount: 400 };
+    var t1 = form.begin();
+    return client.write("pay", "POST", "/payments", body, { expect: "payment_id" }).then(function (o) {
+      form.settle(t1, o);
+      eq([form.state, !!form.uncertain, form.error], ["uncertain", true, null]);
+      var t2 = form.begin();
+      return client.write("pay", "POST", "/payments", body, { expect: "payment_id" }).then(function (o2) {
+        form.settle(t2, o2);
+        eq([o2.status, form.state, form.uncertain, form.error], [200, "done", null, null]);
+        eq([srv.payments.length, srv.balance], [1, 9600]);
+      });
+    });
   });
 
   function memoryStorage() {

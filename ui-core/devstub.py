@@ -13,8 +13,8 @@ Routes served like the real service will need to serve them:
     GET /ui/<file>                                                (static assets)
 Dev-only controls:
     POST /_dev/faults  {"rules": [{"method": "POST", "path": "/payments",
-                                   "action": "drop_after_commit" | "drop_before" | "delay",
-                                   "ms": 1500, "times": 1}]}
+                                   "action": "drop_after_commit" | "drop_before" | "delay" | "replace_body",
+                                   "ms": 1500, "body": "null", "times": 1}]}
     POST /_dev/clock   {"advance_seconds": 700}
     GET  /_test/export, POST /_test/import (whole-state copy, for upgrade drills)
 """
@@ -551,6 +551,15 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(b"{")
             self.wfile.flush()
             return self.drop()
+        if fault and fault.get("action") == "replace_body":
+            # Committed; the status survives but the body is replaced verbatim.
+            data = fault.get("body", "").encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if fault and fault.get("action") == "delay":
             time.sleep(fault.get("ms", 1000) / 1000.0)
         self.send_json(status, payload)

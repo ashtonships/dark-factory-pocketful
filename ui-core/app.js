@@ -73,7 +73,11 @@
     if (sub.state === "pending") nodes.push(h("p", { class: "notice notice-pending", role: "status", text: "Sending…" }));
     if (sub.error) nodes.push(h("p", { class: "notice notice-error", role: "alert", "data-testid": prefix + "-error", text: sub.error.message }));
     if (sub.uncertain) nodes.push(h("p", { class: "notice notice-uncertain", role: "status", "data-testid": prefix + "-uncertain", text: sub.uncertain }));
-    if (sub.state === "done" && success) nodes.push(h("p", { class: "notice notice-success", role: "status", text: success(sub.result) }));
+    if (sub.state === "done" && success) {
+      var line = null;
+      try { line = success(sub.result); } catch (e) { line = "Done."; }
+      nodes.push(h("p", { class: "notice notice-success", role: "status", text: line }));
+    }
     replace(slot, nodes);
   }
 
@@ -141,7 +145,7 @@
     var status = $("#refresh-status");
     if (status) replace(status, h("span", { class: "notice notice-pending", text: "Updating…" }));
     return seq.run(function () {
-      return P.loadAll(api, Object.assign({ me: "/me" }, loaders));
+      return P.loadAll(api, Object.assign({ me: ["/me", "user_id"] }, loaders));
     }, function (data) {
       var first = !ctx.me;
       ctx.me = data.me;
@@ -175,9 +179,11 @@
       body.note = tid(prefix + "-note").value;
       var vis = tid(prefix + "-visibility");
       if (vis) body.visibility = vis.value;
+      // The key follows the raw text of every field: "15" -> "15.00" is a new submission.
+      var identity = rawFields(form);
       var ticket = sub.begin();
       showOutcome(slot, sub, prefix);
-      api.write(prefix, "POST", opts.path, body).then(function (outcome) {
+      api.write(prefix, "POST", opts.path, body, { expect: opts.expect, identity: identity }).then(function (outcome) {
         if (sub.settle(ticket, outcome)) {
           if (outcome.kind === "ok" && !opts.keep) { form.reset(); api.keys.forget(prefix); }
           showOutcome(slot, sub, prefix, opts.success);
@@ -185,6 +191,17 @@
         if (outcome.kind !== "uncertain") refresh();
       });
     });
+  }
+
+  // Raw text of every field in a form, by test id (or id), in DOM order.
+  function rawFields(root) {
+    var out = {};
+    Array.prototype.forEach.call(root.querySelectorAll("input, select, textarea"), function (el) {
+      var name = el.getAttribute("data-testid") || el.id || el.name;
+      if (!name) return;
+      out[name] = el.type === "checkbox" ? (el.checked ? "on" : "off") : el.value;
+    });
+    return out;
   }
 
   // ------------------------------------------------------------ pages --
@@ -198,7 +215,7 @@
   function initAuthorizeForm() {
     if (!tid("authorize-submit")) return;
     moneyForm({
-      prefix: "authorize", path: "/authorizations", handleField: "to_handle", keep: true,
+      prefix: "authorize", path: "/authorizations", handleField: "to_handle", keep: true, expect: "authorization_id",
       messages: Object.assign(handleMessages("handle"), {
         insufficient_funds: "Not enough available funds to hold this amount.",
         self_payment: "You can't hold money for yourself."
@@ -209,14 +226,14 @@
 
   function initIndex() {
     initWalletPage();
-    loaders.activity = "/activity?limit=200";
+    loaders.activity = ["/activity?limit=200", "payments"];
     moneyForm({
-      prefix: "pay", path: "/payments", handleField: "to_handle", keep: true,
+      prefix: "pay", path: "/payments", handleField: "to_handle", keep: true, expect: "payment_id",
       messages: Object.assign(handleMessages("handle"), { insufficient_funds: "Not enough available funds for this payment." }),
       success: function (p) { return "Sent " + money(p.amount) + " to @" + p.to_handle + "."; }
     });
     moneyForm({
-      prefix: "request", path: "/requests", handleField: "payer_handle", keep: false,
+      prefix: "request", path: "/requests", handleField: "payer_handle", keep: false, expect: "request_id",
       messages: handleMessages("handle"),
       success: function (r) { return "Asked @" + r.payer_handle + " for " + money(r.amount) + "."; }
     });
@@ -251,8 +268,8 @@
   // -------------------------------------------------------- requests --
 
   function initRequests() {
-    loaders.incoming = "/requests?direction=incoming&limit=200";
-    loaders.outgoing = "/requests?direction=outgoing&limit=200";
+    loaders.incoming = ["/requests?direction=incoming&limit=200", "requests"];
+    loaders.outgoing = ["/requests?direction=outgoing&limit=200", "requests"];
     var slot = $("#request-messages");
     var sub = new P.Submission({
       request_not_pending: "That request was already settled or withdrawn. The list is up to date now.",
@@ -267,10 +284,11 @@
       var call;
       if (kind === "pay") {
         var sel = tid("request-visibility-" + r.request_id);
+        var vis = sel ? sel.value : "public";
         call = api.write("reqpay:" + r.request_id, "POST", "/requests/" + encodeURIComponent(r.request_id) + "/pay",
-          { visibility: sel ? sel.value : "public" });
+          { visibility: vis }, { expect: "payment_id", identity: { visibility: vis } });
       } else {
-        call = api.post("/requests/" + encodeURIComponent(r.request_id) + "/" + kind, {});
+        call = api.post("/requests/" + encodeURIComponent(r.request_id) + "/" + kind, {}, "request_id");
       }
       call.then(function (outcome) {
         if (sub.settle(ticket, outcome)) {
@@ -371,9 +389,10 @@
       var dup = c.handles.filter(function (x, i) { return c.handles.indexOf(x) !== i; });
       if (dup.length) { sub.reject("@" + dup[0] + " is listed twice. Each person can appear once."); showOutcome(slot, sub, "split"); return; }
       var body = { amount: c.parsed.minor, participant_handles: c.handles, note: note.value };
+      var identity = rawFields(tid("split-submit").form);
       var ticket = sub.begin();
       showOutcome(slot, sub, "split");
-      api.write("split", "POST", "/splits", body).then(function (outcome) {
+      api.write("split", "POST", "/splits", body, { expect: "split_id", identity: identity }).then(function (outcome) {
         if (sub.settle(ticket, outcome)) {
           if (outcome.kind === "ok") { tid("split-submit").form.reset(); api.keys.forget("split"); preview(); }
           showOutcome(slot, sub, "split", function (s) {
@@ -393,7 +412,7 @@
   function initAuthorizations() {
     initWalletPage();
     initAuthorizeForm();
-    loaders.auths = "/authorizations?limit=200";
+    loaders.auths = ["/authorizations?limit=200", "authorizations"];
     var slot = $("#authorization-messages");
     var sub = new P.Submission({
       authorization_not_open: "This hold is already closed. The list is up to date now.",
@@ -412,14 +431,20 @@
         var body = { amount: parsed.minor };
         var keep = tid("authorization-keep-open-" + a.authorization_id);
         if (keep && keep.checked) body.final = false;
+        var slotName = "capture:" + a.authorization_id;
+        var identity = { amount: tid("authorization-capture-amount-" + a.authorization_id).value, keep: keep && keep.checked ? "on" : "off" };
         ticket = sub.begin();
         showOutcome(slot, sub, "authorization");
-        api.write("capture:" + a.authorization_id, "POST", "/authorizations/" + encodeURIComponent(a.authorization_id) + "/capture", body)
-          .then(function (o) { done(ticket, o, function (p) { return "Collected " + money(p.amount) + " from @" + a.from_handle + "."; }); });
+        api.write(slotName, "POST", "/authorizations/" + encodeURIComponent(a.authorization_id) + "/capture", body,
+          { expect: "payment_id", identity: identity })
+          .then(function (o) {
+            // A confirmed capture closes that intent: the next capture is a new one.
+            if (o.kind === "ok") api.keys.forget(slotName);
+            done(ticket, o, function (p) { return "Collected " + money(p.amount) + " from @" + a.from_handle + "."; }); });
       } else {
         ticket = sub.begin();
         showOutcome(slot, sub, "authorization");
-        api.post("/authorizations/" + encodeURIComponent(a.authorization_id) + "/void", {})
+        api.post("/authorizations/" + encodeURIComponent(a.authorization_id) + "/void", {}, "authorization_id")
           .then(function (o) { done(ticket, o, function () { return "Released the hold for @" + a.to_handle + "."; }); });
       }
     }

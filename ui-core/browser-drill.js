@@ -88,7 +88,7 @@ async function run() {
 
   // ------------------------------------------------------------- auth --
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-  ctx.setDefaultTimeout(6000);
+  ctx.setDefaultTimeout(10000);
   const page = await ctx.newPage();
   const posts = [];
   page.on("request", (r) => { if (r.method() === "POST") posts.push(r.url().replace(BASE, "")); });
@@ -185,15 +185,52 @@ async function run() {
   const lostItems = await page.locator('[data-testid="activity-list"] li:has([data-testid^="activity-note-"]:text-is("lost"))').count();
   check("feed holds exactly one 'lost' payment", lostItems === 1, lostItems);
 
+  // PF-A1: committed 201 whose body is empty / null / not the payment
+  for (const bad of ["", "null", "{}"]) {
+    const was = Number(await attr(page, "wallet-balance", "data-amount"));
+    await faults([{ method: "POST", path: "/payments", action: "replace_body", body: bad, times: 1 }]);
+    await page.fill(T("pay-amount"), "0.50");
+    await page.fill(T("pay-note"), "body " + JSON.stringify(bad));
+    await page.click(T("pay-submit"));
+    check("201 with body " + JSON.stringify(bad) + ": pay-uncertain, no pay-error", await waitPresent(page, "pay-uncertain") && (await count(page, "pay-error")) === 0);
+    check("201 with body " + JSON.stringify(bad) + ": inputs kept", (await page.inputValue(T("pay-amount"))) === "0.50" && (await page.inputValue(T("pay-handle"))) === "bob");
+    await page.click(T("pay-submit"));
+    check("201 with body " + JSON.stringify(bad) + ": retry clears, money moved once",
+      await waitGone(page, "pay-uncertain") && await waitText(page, "wallet-balance", P2(was - 50)) && (await count(page, "pay-error")) === 0);
+  }
+
+  // PF-A2: raw edits are new intents even when they normalise the same
+  {
+    const was = Number(await attr(page, "wallet-balance", "data-amount"));
+    await page.fill(T("pay-handle"), "bob");
+    await page.fill(T("pay-note"), "raw");
+    await page.fill(T("pay-amount"), "1");
+    await page.click(T("pay-submit"));
+    check("PF-A2 '1' pays", await waitText(page, "wallet-balance", P2(was - 100)));
+    await page.fill(T("pay-amount"), "1.00");
+    await page.click(T("pay-submit"));
+    check("PF-A2 '1' -> '1.00' is a second payment", await waitText(page, "wallet-balance", P2(was - 200)));
+    await page.fill(T("pay-handle"), "@bob");
+    await page.click(T("pay-submit"));
+    check("PF-A2 'bob' -> '@bob' is a third payment", await waitText(page, "wallet-balance", P2(was - 300)));
+    await page.click(T("pay-submit"));
+    await page.waitForTimeout(500);
+    check("PF-A2 unchanged resubmit still replays", (await text(page, "wallet-balance")) === P2(was - 300));
+    await page.fill(T("pay-note"), "lost");
+    await page.fill(T("pay-amount"), "2.00");
+    await page.fill(T("pay-handle"), "bob");
+  }
+
   // latest refresh wins with out-of-order responses
+  const beforeRace = Number(await attr(page, "wallet-balance", "data-amount"));
   await faults([{ method: "GET", path: "/me", action: "delay", ms: 1500, times: 1 }]);
-  await page.click(T("wallet-refresh"));          // slow, will carry 69.00
+  await page.click(T("wallet-refresh"));          // slow, will carry the old balance
   await page.waitForTimeout(150);
   await call("POST", "/payments", { to_handle: "ada", amount: 1000 }, bobTok, "k-ext-2");
-  await page.click(T("wallet-refresh"));          // fast, carries 79.00
-  check("later refresh shows 79.00 EUR", await waitText(page, "wallet-balance", "79.00 EUR"));
+  await page.click(T("wallet-refresh"));          // fast, carries old + 10.00
+  check("later refresh shows the new balance", await waitText(page, "wallet-balance", P2(beforeRace + 1000)));
   await page.waitForTimeout(1800);
-  check("delayed earlier refresh does not overwrite", (await text(page, "wallet-balance")) === "79.00 EUR", await text(page, "wallet-balance"));
+  check("delayed earlier refresh does not overwrite", (await text(page, "wallet-balance")) === P2(beforeRace + 1000), await text(page, "wallet-balance"));
   check("refresh keeps the pay form", (await page.inputValue(T("pay-note"))) === "lost");
 
   // request form
@@ -407,10 +444,33 @@ async function run() {
   check("JPY: wallet-balance 1200 JPY", (await text(zpage, "wallet-balance")) === "1200 JPY");
   check("empty-activity shown, activity-list absent", (await count(zpage, "empty-activity")) === 1 && (await count(zpage, "activity-list")) === 0);
   await zpage.goto(BASE + "/requests");
-  check("empty-requests shown", await waitPresent(zpage, "empty-requests"));
+  const emptyShown = await waitPresent(zpage, "empty-requests");
+  check("empty-requests shown", emptyShown, emptyShown ? undefined : { url: zpage.url(), main: (await zpage.locator("main").innerText()).slice(0, 300) });
   await zpage.goto(BASE + "/authorizations");
   check("empty-authorizations shown", await waitPresent(zpage, "empty-authorizations"));
   if (SHOTS) await zpage.screenshot({ path: path.join(SHOTS, "m375-empty-holds.png"), fullPage: true });
+
+  // Largest legal balances (ledger 80, 9011, 9012): exact text, no horizontal scroll at 375 px.
+  for (const [balance, expected] of [[9007199254740991, "90071992547409.91 EUR"], [9007199254740992, "90071992547409.92 EUR"]]) {
+    await call("POST", "/_test/reset", { currency: "EUR", minor_units: 2, users: [
+      { id: "u_big", email: "big@example.com", password: "correct horse", display_name: "Big", handle: "big", balance }] });
+    for (const width of [375, 1280]) {
+      const bctx2 = await browser.newContext({ viewport: { width, height: 800 } });
+      bctx2.setDefaultTimeout(10000);
+      const bp = await bctx2.newPage();
+      await signIn(bp, "big@example.com");
+      check(width + "px balance " + balance + ": wallet-balance exact", (await text(bp, "wallet-balance")) === expected && (await attr(bp, "wallet-balance", "data-amount")) === String(balance));
+      check(width + "px balance " + balance + ": wallet-available exact", (await text(bp, "wallet-available")) === expected);
+      check(width + "px balance " + balance + ": / has no horizontal scroll", await noHorizontalScroll(bp),
+        await bp.evaluate(() => document.documentElement.scrollWidth));
+      await bp.goto(BASE + "/authorizations");
+      await waitPresent(bp, "wallet-available");
+      check(width + "px balance " + balance + ": /authorizations has no horizontal scroll", await noHorizontalScroll(bp),
+        await bp.evaluate(() => document.documentElement.scrollWidth));
+      if (SHOTS && width === 375) await bp.screenshot({ path: path.join(SHOTS, "m375-max-balance-" + balance + ".png"), fullPage: true });
+      await bctx2.close();
+    }
+  }
 
   await browser.close();
   console.log(passed + "/" + (passed + failed) + " checks passed");

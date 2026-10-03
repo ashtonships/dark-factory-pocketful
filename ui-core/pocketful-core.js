@@ -56,9 +56,13 @@
     return mu === 0 ? "15" : "15." + new Array(mu + 1).join("0");
   }
 
+  var MAX_MINOR = 9007199254740992; // 2^53
+
   function minorDigits(minor) {
     if (typeof minor === "bigint") return minor.toString();
-    if (typeof minor === "number" && Number.isSafeInteger(minor)) return String(minor);
+    // Balances may reach ±2^53 inclusive (stage-1 §4); every integer up to
+    // that bound is exact in a double and String() prints it exactly.
+    if (typeof minor === "number" && Number.isInteger(minor) && Math.abs(minor) <= MAX_MINOR) return String(minor);
     if (typeof minor === "string" && /^-?\d+$/.test(minor)) return minor.replace(/^(-?)0+(?=\d)/, "$1");
     throw new TypeError("amount must be an integer count of minor units");
   }
@@ -118,8 +122,9 @@
     }).join(",") + "}";
   }
 
-  function newKey() {
-    var c = root.crypto;
+  // `cryptoImpl` defaults to the platform's Web Crypto; tests inject one.
+  function newKey(cryptoImpl) {
+    var c = cryptoImpl || root.crypto;
     if (c && typeof c.randomUUID === "function") return c.randomUUID();
     if (c && typeof c.getRandomValues === "function") {
       var bytes = new Uint8Array(16);
@@ -132,16 +137,19 @@
 
   // ------------------------------------------------------- idempotency keys --
 
-  // One slot per form. A submission whose method, path and body equal the
-  // previous submission from the same slot reuses its key, so a resubmit of an
-  // unchanged form (or a retry after a lost response) replays instead of
-  // moving money again. Any change mints a new key.
+  // One slot per form. A submission whose method, path, body and raw form
+  // text (`identity`) equal the previous submission from the same slot reuses
+  // its key, so a resubmit of an unchanged form (or a retry after a lost
+  // response) replays instead of moving money again. Any change mints a new
+  // key, including a raw edit that normalises to the same body ("15" ->
+  // "15.00", "bob" -> "@bob").
   function KeyRing(keyFactory) {
     this._slots = Object.create(null);
     this._newKey = keyFactory || newKey;
   }
-  KeyRing.prototype.keyFor = function (slot, method, path, body) {
-    var fingerprint = method + " " + path + " " + canonicalJson(body === undefined ? null : body);
+  KeyRing.prototype.keyFor = function (slot, method, path, body, identity) {
+    var fingerprint = method + " " + path + " " + canonicalJson(body === undefined ? null : body) +
+      " " + canonicalJson(identity === undefined ? null : identity);
     var current = this._slots[slot];
     if (current && current.fingerprint === fingerprint) return current.key;
     var key = this._newKey();
@@ -187,10 +195,13 @@
   // ------------------------------------------------------------ API client --
 
   // Every call resolves (never rejects) to one of three outcomes:
-  //   {kind: "ok", status, data}            2xx
+  //   {kind: "ok", status, data}            2xx whose body is a JSON object
+  //                                          (carrying `expect`, when given)
   //   {kind: "refused", status, code, message, data}
   //                                          4xx: the server definitely said no
-  //   {kind: "uncertain", status, reason}   network error, timeout or 5xx: the
+  //   {kind: "uncertain", status, reason}   network error, timeout, 5xx, or a
+  //                                          2xx whose body is empty, null, not
+  //                                          JSON or not the expected object: the
   //                                          write may or may not have happened
   // A refused write can be corrected and resubmitted; an uncertain one must be
   // retried with the same key and body.
@@ -235,7 +246,7 @@
         return self._fetch(self.baseUrl + path, init);
       })
       .then(function (res) {
-        return res.text().then(function (text) { return classify(res.status, text); },
+        return res.text().then(function (text) { return classify(res.status, text, opts.expect); },
           function () { return res.status >= 400 && res.status < 500 ? classify(res.status, "") : { kind: "uncertain", status: res.status, reason: "unreadable response" }; });
       }, function (err) {
         return { kind: "uncertain", status: 0, reason: timedOut ? "timeout" : "network: " + (err && err.message || err) };
@@ -250,15 +261,24 @@
     });
   };
 
-  function classify(status, text) {
+  // `expect` names a field the success body must carry (e.g. "payment_id").
+  function classify(status, text, expect) {
     var data = null;
     var parsed = false;
     if (text) {
       try { data = JSON.parse(text); parsed = true; } catch (e) { data = null; }
     }
     if (status >= 200 && status < 300) {
-      // A 2xx whose body cannot be read leaves the result unknown for a write.
-      if (text && !parsed) return { kind: "uncertain", status: status, reason: "unreadable response" };
+      // A success we cannot read is not a confirmed outcome: an empty, null,
+      // non-JSON or non-object body, or one missing the expected field, leaves
+      // the write's result unknown.
+      if (!parsed) return { kind: "uncertain", status: status, reason: "unreadable response" };
+      if (data === null || typeof data !== "object" || Array.isArray(data)) {
+        return { kind: "uncertain", status: status, reason: "unexpected response" };
+      }
+      if (expect && (data[expect] === undefined || data[expect] === null)) {
+        return { kind: "uncertain", status: status, reason: "unexpected response" };
+      }
       return { kind: "ok", status: status, data: data };
     }
     if (status >= 400 && status < 500) {
@@ -274,31 +294,34 @@
     return { kind: "uncertain", status: status, reason: "server error " + status };
   }
 
-  ApiClient.prototype.get = function (path) { return this.request("GET", path); };
+  ApiClient.prototype.get = function (path, expect) { return this.request("GET", path, { expect: expect }); };
 
   // An idempotent write. `slot` names the form the write comes from; the key is
   // reused while method, path and body stay the same.
-  ApiClient.prototype.write = function (slot, method, path, body) {
-    var key = this.keys.keyFor(slot, method, path, body);
-    return this.request(method, path, { body: body, idempotencyKey: key }).then(function (outcome) {
+  // options.expect names the field a successful response must carry;
+  // options.identity is the raw text of the form's fields (see KeyRing).
+  ApiClient.prototype.write = function (slot, method, path, body, options) {
+    options = options || {};
+    var key = this.keys.keyFor(slot, method, path, body, options.identity);
+    return this.request(method, path, { body: body, idempotencyKey: key, expect: options.expect }).then(function (outcome) {
       outcome.idempotencyKey = key;
       return outcome;
     });
   };
 
   // A write with no idempotency key (decline, cancel, void).
-  ApiClient.prototype.post = function (path, body) {
-    return this.request("POST", path, { body: body === undefined ? {} : body });
+  ApiClient.prototype.post = function (path, body, expect) {
+    return this.request("POST", path, { body: body === undefined ? {} : body, expect: expect });
   };
 
   ApiClient.prototype.signup = function (email, password, displayName) {
     return this._session(this.request("POST", "/auth/signup", {
-      anonymous: true, body: { email: email, password: password, display_name: displayName }
+      anonymous: true, expect: "token", body: { email: email, password: password, display_name: displayName }
     }));
   };
   ApiClient.prototype.login = function (email, password) {
     return this._session(this.request("POST", "/auth/login", {
-      anonymous: true, body: { email: email, password: password }
+      anonymous: true, expect: "token", body: { email: email, password: password }
     }));
   };
   ApiClient.prototype._session = function (promise) {
@@ -407,11 +430,15 @@
   // True while a started read has not yet been superseded or applied.
   LatestWins.prototype.pending = function () { return this._issued > this._completed; };
 
-  // Loads several endpoints as one refresh. Resolves to {name: data}, or
-  // rejects with the first outcome that was not ok.
+  // Loads several endpoints as one refresh. `paths` maps a name to a path or
+  // to [path, expectedField]. Resolves to {name: data}, or rejects with the
+  // first outcome that was not ok.
   function loadAll(api, paths) {
     var names = Object.keys(paths);
-    return Promise.all(names.map(function (n) { return api.get(paths[n]); })).then(function (outcomes) {
+    return Promise.all(names.map(function (n) {
+      var p = paths[n];
+      return Array.isArray(p) ? api.get(p[0], p[1]) : api.get(p);
+    })).then(function (outcomes) {
       var out = {};
       for (var i = 0; i < names.length; i++) {
         if (outcomes[i].kind !== "ok") throw outcomes[i];

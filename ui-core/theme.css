@@ -53,7 +53,11 @@ a { color: var(--primary); }
 /* wallet */
 .label { color: var(--muted); font-size: .875rem; }
 .amount { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
-.amount-hero { font-size: 2.25rem; font-weight: 700; margin-top: 2px; }
+/* The headline shrinks on narrow screens and wraps rather than overflow,
+   even for the largest legal balance (ledger 9012). */
+.amount-hero { font-size: clamp(1.5rem, 7.5vw, 2.25rem); font-weight: 700; margin-top: 2px; white-space: normal; overflow-wrap: anywhere; }
+.wallet-sub dd { overflow-wrap: anywhere; }
+.item > .amount, .item-amounts .amount { white-space: normal; overflow-wrap: anywhere; text-align: right; }
 .wallet-sub { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 12px 0 0; color: var(--muted); }
 .wallet-sub dt { font-size: .875rem; }
 .wallet-sub dd { margin: 0; font-variant-numeric: tabular-nums; }
