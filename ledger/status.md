@@ -14,7 +14,7 @@ Updated by Coordinator. Ledger: `ledger/pocketful.md`. Time box: final report by
 | W-1 | Builder | d3614cf; gating with W-2 at ca640ff | see ledger table | — |
 | W-2 | Builder | ca640ff handed back 16:24; gate requested | 62–79, 131–204, 217–220 | — |
 | W-3 | Builder | a3d2baf handed back; gate after W-1/W-2 | 205–216, 221–231 | — |
-| W-4 | Builder | open | 232–273 | — |
+| W-4 | Builder | 6bbce6d handed back (complete stage 1); stage gate requested | 232–273 | — |
 | W-5 | Builder-Two | handed back 77595cc; in Adversary code review | stage-2 UI | Builder-Two self-test 38/38 (not evidence) |
 | W-6 | Builder-Two | 73beaa0 → f074486 (D-11) → 93f3606 (fixes PF-A1..A4, survivor-11 test); in Adversary re-review | stage-2 UI | Builder-Two drill 109/109 (not evidence) |
 | W-D | Builder | open (starts when W-1 accepted) | stage-2 direction | — |
