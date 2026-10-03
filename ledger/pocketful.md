@@ -76,6 +76,7 @@ Adversary pre-mortem for stage 1 (Sat 3 Oct). These five risks are entries; chec
 9006. “Reserve 400 `malformed_request` for a body that does not parse or a field of the wrong type.” — pre-mortem 3 · W-1 · No float/bool coercion, note length in code points, strict query-integer grammar, keep-alive body consumption (9001–9003).
 9007. “A share of `0` is legal and still produces a request for that participant.” — pre-mortem 4 · W-3 · Zero shares, caller omitted, remainder allocation by order; conservation holds after zero requests are paid.
 9008. “Either all movements commit together or none do; failed validation claims no idempotency key and creates no payment or revision.” — pre-mortem 5 · W-4 · Settlements atomic, not sequential; export/import keeps tokens, operator permissions and original replay receipts.
+9009. “Unknown outcomes are not confirmed rejections.” — finding PF-A1 (Adversary, W-5 77595cc / W-6 73beaa0) · W-5, W-6 · A 2xx with an empty, `null` or unparseable body is an uncertain outcome: pay-uncertain shows, the form and key are kept, nothing throws. Status: open, with Builder-Two.
 
 ## Stage 1 entries
 N/A: “This stage defines the initial service and its API.” — stage-1.md line 3: stage introduction, no behaviour
