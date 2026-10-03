@@ -77,6 +77,7 @@ Adversary pre-mortem for stage 1 (Sat 3 Oct). These five risks are entries; chec
 9007. “A share of `0` is legal and still produces a request for that participant.” — pre-mortem 4 · W-3 · Zero shares, caller omitted, remainder allocation by order; conservation holds after zero requests are paid.
 9008. “Either all movements commit together or none do; failed validation claims no idempotency key and creates no payment or revision.” — pre-mortem 5 · W-4 · Settlements atomic, not sequential; export/import keeps tokens, operator permissions and original replay receipts.
 9009. “Unknown outcomes are not confirmed rejections.” — finding PF-A1 (Adversary, W-5 77595cc / W-6 73beaa0) · W-5, W-6 · A 2xx with an empty, `null` or unparseable body is an uncertain outcome: pay-uncertain shows, the form and key are kept, nothing throws. Status: open, with Builder-Two.
+9010. “Changing a field makes the next submission a new payment request.” — finding PF-A2 (Adversary, W-5 77595cc / W-6 73beaa0) · W-5, W-6 · The intent identity is the raw text of every form field, not the normalised body: 15 → 15.00, bob → @bob or added spaces get a new key and a new payment; an unchanged form keeps its key. Status: open, with Builder-Two.
 
 ## Stage 1 entries
 N/A: “This stage defines the initial service and its API.” — stage-1.md line 3: stage introduction, no behaviour
