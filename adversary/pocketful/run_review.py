@@ -13,6 +13,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("repo", type=Path)
     parser.add_argument("--revision", default="73beaa0")
+    parser.add_argument("--d11", action="store_true")
     parser.add_argument("--modules", default="/Volumes/SSD/overflow/darkfactory/b2-pw/node_modules")
     args = parser.parse_args()
     if not Path("/Volumes/SSD").is_mount():
@@ -40,7 +41,10 @@ def main():
             else:
                 raise SystemExit("Review stub did not become healthy")
             env = dict(os.environ, NODE_PATH=args.modules)
-            result = subprocess.run(["node", str(scripts / "review_browser.js"), base], env=env)
+            command = ["node", str(scripts / "review_browser.js"), base]
+            if args.d11:
+                command.append("--d11")
+            result = subprocess.run(command, env=env)
             raise SystemExit(result.returncode)
         finally:
             stub.terminate()

@@ -51,6 +51,71 @@ async function run() {
       }
       await call("/_test/reset", fixture());
       await signIn(page);
+      if (process.argv.includes("--d11")) {
+        const authorizations = [];
+        page.on("request", request => {
+          if (request.method() === "POST" && request.url() === base + "/authorizations") authorizations.push({ key: request.headers()["idempotency-key"], body: request.postData() });
+        });
+        await check("D-11 home authorize form has labeled required fields", async () => {
+          for (const field of ["handle", "amount", "note", "visibility", "submit"]) assert.equal(await page.locator(selector("authorize-" + field)).count(), 1);
+          for (const field of ["handle", "amount", "note", "visibility"]) assert.equal(await page.locator('label[for="authorize-' + field + '"]').count(), 1);
+        });
+        await page.locator(selector("authorize-handle")).fill("bob");
+        await page.locator(selector("authorize-amount")).fill("2.505");
+        await page.locator(selector("authorize-submit")).click();
+        await check("D-11 invalid precision never posts a hold", async () => {
+          await page.locator(selector("authorize-error")).waitFor();
+          assert.equal(authorizations.length, 0);
+        });
+        await page.locator(selector("authorize-amount")).fill("2.50");
+        await page.locator(selector("authorize-note")).fill("Home hold e\u0301 😀");
+        await page.locator(selector("authorize-visibility")).selectOption("private");
+        await page.locator(selector("authorize-submit")).click();
+        await check("D-11 home hold refreshes available and held, not total", async () => {
+          await page.waitForFunction(target => document.querySelector(target)?.getAttribute("data-amount") === "9750", selector("wallet-available"));
+          assert.equal(await page.locator(selector("wallet-held")).getAttribute("data-amount"), "250");
+          assert.equal(await page.locator(selector("wallet-balance")).getAttribute("data-amount"), "10000");
+          assert.equal(await page.locator(selector("authorize-error")).count(), 0);
+        });
+        const readHolds = () => page.evaluate(async () => {
+          const response = await fetch("/authorizations", { headers: { Accept: "application/json", Authorization: "Bearer " + localStorage.getItem("pocketful.token") } });
+          return (await response.json()).authorizations;
+        });
+        const holds = await readHolds();
+        await check("D-11 private hold receipt preserves note and stays out of feed", async () => {
+          assert.equal(holds.length, 1);
+          assert.equal(holds[0].amount, 250);
+          assert.equal(holds[0].visibility, "private");
+          assert.equal(holds[0].to_handle, "bob");
+          assert.equal(holds[0].note, "Home hold e\u0301 😀");
+          assert.equal(await page.locator(selector("empty-activity")).count(), 1);
+        });
+        await check("D-11 unchanged home resubmit reserves once", async () => {
+          await Promise.all([
+            page.waitForResponse(response => response.url() === base + "/authorizations" && response.request().method() === "POST"),
+            page.locator(selector("authorize-submit")).click()
+          ]);
+          assert.equal(authorizations.length, 2);
+          assert.equal(authorizations[0].key, authorizations[1].key);
+          assert.equal((await readHolds()).length, 1);
+        });
+        await page.locator(selector("authorize-amount")).fill("99999");
+        await page.locator(selector("authorize-submit")).click();
+        await check("D-11 refused home hold preserves fields and wallet", async () => {
+          await page.locator(selector("authorize-error")).waitFor();
+          assert.equal(await page.locator(selector("authorize-amount")).inputValue(), "99999");
+          assert.equal(await page.locator(selector("authorize-note")).inputValue(), "Home hold e\u0301 😀");
+          assert.equal(await page.locator(selector("authorize-visibility")).inputValue(), "private");
+          assert.equal(await page.locator(selector("wallet-available")).getAttribute("data-amount"), "9750");
+        });
+        await page.goto(base + "/authorizations", { waitUntil: "domcontentloaded", timeout: 10000 });
+        await page.locator(selector("authorization-void-" + holds[0].authorization_id)).waitFor();
+        await check("D-11 authorize form remains on authorizations route", async () => assert.equal(await page.locator(selector("authorize-submit")).count(), 1));
+        await page.locator(selector("authorization-void-" + holds[0].authorization_id)).click();
+        await page.waitForFunction(target => document.querySelector(target)?.getAttribute("data-amount") === "10000", selector("wallet-available"));
+        await page.goto(base + "/", { waitUntil: "domcontentloaded", timeout: 10000 });
+        await page.locator(selector("wallet-balance")).waitFor();
+      }
       await page.locator(selector("pay-handle")).fill("bob");
       await page.locator(selector("pay-amount")).fill("15");
       await page.locator(selector("pay-note")).fill("  <img src=x onerror=window.XSS=2> e\u0301 😀");

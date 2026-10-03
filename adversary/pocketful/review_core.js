@@ -95,9 +95,20 @@ async function run() {
   await check("raw pay amount edit mints a new identity", () => {
     let serial = 0;
     const keys = new core.KeyRing(() => "key-" + ++serial);
-    const first = keys.keyFor("pay", "POST", "/payments", { to_handle: "bob", amount: core.parseAmount("15", 2).minor });
-    const second = keys.keyFor("pay", "POST", "/payments", { to_handle: "bob", amount: core.parseAmount("15.00", 2).minor });
+    const first = keys.keyFor("pay", "POST", "/payments", { to_handle: "bob", amount: core.parseAmount("15", 2).minor }, { "pay-amount": "15" });
+    const second = keys.keyFor("pay", "POST", "/payments", { to_handle: "bob", amount: core.parseAmount("15.00", 2).minor }, { "pay-amount": "15.00" });
     assert.notEqual(first, second);
+  });
+  await check("body-only API calls replay while supplied raw form identities distinguish intents", () => {
+    let serial = 0;
+    const keys = new core.KeyRing(() => "key-" + ++serial);
+    const body = { to_handle: "bob", amount: 1500 };
+    assert.equal(keys.keyFor("direct", "POST", "/payments", body), keys.keyFor("direct", "POST", "/payments", body));
+    for (const slot of ["pay", "authorize", "request", "split", "capture"]) {
+      const first = keys.keyFor(slot, "POST", "/" + slot, body, { amount: "15", note: "verbatim", visibility: "private" });
+      assert.equal(keys.keyFor(slot, "POST", "/" + slot, body, { amount: "15", note: "verbatim", visibility: "private" }), first);
+      assert.notEqual(keys.keyFor(slot, "POST", "/" + slot, body, { amount: "15.00", note: "verbatim", visibility: "private" }), first);
+    }
   });
   process.stdout.write("Revision " + revision + "; " + failures + " required-behavior failures\n");
   process.exitCode = failures ? 1 : 0;

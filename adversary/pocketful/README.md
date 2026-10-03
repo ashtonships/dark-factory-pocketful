@@ -52,6 +52,25 @@ No uncommitted Builder-Two changes are used. Failure exits on these revisions ar
 - PF-A3: the inclusive permitted wallet boundary `2^53` is rejected by the client's `Number.isSafeInteger` check.
 - PF-A4: a legal large balance at `2^53 - 1` produces a 500px-wide page at the required 375px viewport.
 
+The superseding fix head `93f3606` passes the independent core suite (11/11) and browser suite
+(32/32, including D-11 checks at both 1280px and 375px):
+
+```sh
+node adversary/pocketful/review_core.js /Users/ashton/DarkFactory/band-work/pf-a 93f3606
+python3 adversary/pocketful/run_review.py /Users/ashton/DarkFactory/band-work/pf-a --revision 93f3606 --d11
+```
+
+The raw-amount identity probe now supplies the form's raw fields as the fifth `keyFor` argument.
+A body-only caller cannot distinguish `15` from `15.00` after normalization; identical JSON should
+retain its replay identity. The probe separately verifies body-only replay and distinct raw identities
+for pay, authorize, request, split and capture slots. Source review checks each real form supplies its
+raw editable fields. Earlier heads still fail the raw-field probe. Browser navigation waits for
+DOMContentLoaded plus an explicit ready element instead of treating the document load event as
+application readiness. D-11 exercises the home authorization form, precision refusal, available/held
+updates, private receipt/feed separation, unchanged replay, refused input preservation and continued
+presence on the authorizations route. These results close PF-A1–4 as review findings; they are not
+Checker acceptance or integration evidence against the actual stage-2 money service.
+
 ## Mutation measurements
 
 ```sh
