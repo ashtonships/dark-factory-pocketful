@@ -5,7 +5,7 @@ Updated by Coordinator. Ledger: `ledger/pocketful.md`. Time box: final report by
 | Stage | State | Accepted revision | Gate receipt |
 |---|---|---|---|
 | 1 | in progress (ledger 273/273 sentences, 251 entries + 22 waivers + 9001–9003) | — | — |
-| 2 | not started | — | — |
+| 2 | ledger written (222/222 sentences, 211 entries + 11 waivers); W-5/W-6 pre-work in review | — | — |
 | 3 | not started | — | — |
 | 4 | not started | — | — |
 
@@ -16,7 +16,7 @@ Updated by Coordinator. Ledger: `ledger/pocketful.md`. Time box: final report by
 | W-3 | Builder | open | 205–216, 221–231 | — |
 | W-4 | Builder | open | 232–273 | — |
 | W-5 | Builder-Two | handed back 77595cc; in Adversary code review | stage-2 UI | Builder-Two self-test 38/38 (not evidence) |
-| W-6 | Builder-Two | in progress (screen structure and behaviour, unstyled, ui-core/) | stage-2 UI | — |
+| W-6 | Builder-Two | handed back 73beaa0; in Adversary review; D-11 change requested | stage-2 UI | Builder-Two drill 109/109 (not evidence) |
 | W-D | Builder | open (starts when W-1 accepted) | stage-2 direction | — |
 
 ## Blockers and exceptions
