@@ -38,8 +38,10 @@ def test_me_shape_and_seeded_balances(api, seeded):
     # ledger: 50, 51, 57, 83, 84, 85
     me = seeded["ada"].me()
     assert me.status == 200, me
-    assert me.json == {"user_id": "u_ada", "display_name": "Ada", "handle": "ada",
-                       "balance": 10000, "currency": "EUR", "minor_units": 2}
+    want = {"user_id": "u_ada", "display_name": "Ada", "handle": "ada",
+            "balance": 10000, "currency": "EUR", "minor_units": 2}
+    # later stages add fields beside these (stage 2: total, available, held)
+    assert {k: me.json.get(k) for k in want} == want, me.json
     # seeded payments are not replayed against the given balances
     assert seeded["bob"].balance() == 2500
     assert seeded["cy"].balance() == 0
