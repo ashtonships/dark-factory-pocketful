@@ -80,3 +80,25 @@ def test_export_without_snapshots_still_imports(api):
         assert me["balance"] == 10600 - 7
     finally:
         other.close()
+
+
+def test_token_taken_before_import_survives_import(api):
+    # ledger: 3046, D-27 (imported snapshots merge in; the importer's own live tokens keep paging)
+    url2 = os.environ.get("PF_BASE_URL_2")
+    if not url2:
+        pytest.skip("no second instance (run_checks starts one in --repo mode)")
+    ada_a, tok_a, p1_a, _ = frozen_then_changed(api)
+    snap = api.req("GET", "/_test/export").json
+    other = Api(url2)
+    try:
+        fx = history_fixture()
+        other.reset(fx)
+        ada_b = other.session("ada@example.com")
+        mine = ada_b.get("/statement", params={"limit": 2}).json
+        assert other.req("POST", "/_test/import", body=snap).status == 204
+        r = page(other, ada_a, mine["snapshot"], 0)  # same owner (u_ada), now holding the imported session
+        assert r.status == 200, r
+        assert r.json["entries"] == mine["entries"] and r.json["closing_balance"] == mine["closing_balance"]
+        assert page(other, ada_a, tok_a, 0).json["entries"] == p1_a["entries"]
+    finally:
+        other.close()
