@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 from core import (
-    APIError, HANDLE_PATTERN, MAX_BALANCE, SCRYPT_TAG, WRITE_LOCK, amount, canonical_body, check_password,
+    APIError, HANDLE_PATTERN, MAX_BALANCE, WRITE_LOCK, amount, canonical_body, check_password,
     connection, derived_handle, email_key, get_meta, hash_password, initialize,
     malformed, new_id, new_token, note, payment_body, request_body, required_string,
     reset, timestamp, valid_email, validation, visibility, write_transaction,
@@ -426,18 +426,13 @@ class PocketfulHandler(BaseHTTPRequestHandler):
         user = db.execute("SELECT * FROM users WHERE email_key = ?", (email_key(email),)).fetchone()
         if user is None or not check_password(password, user["password_salt"], user["password_hash"]):
             raise APIError(401, "unauthenticated")
-        upgraded_hash = user["password_hash"]
-        if not upgraded_hash.startswith(SCRYPT_TAG):
-            # Reuse the existing random salt so simultaneous legacy upgrades agree.
-            _, upgraded_hash = hash_password(password, bytes.fromhex(user["password_salt"]))
         token = new_token()
-        # All KDF work is finished before SQLite excludes reset/import writers.
+        # SQLite excludes reset/import writers; recheck credentials before insertion.
+        # No process lock is needed for this token-only transaction.
         with write_transaction(db, serialize=False):
-            current = db.execute("SELECT 1 FROM users WHERE id = ? AND password_salt = ? AND password_hash IN (?, ?)", (user["id"], user["password_salt"], user["password_hash"], upgraded_hash)).fetchone()
+            current = db.execute("SELECT 1 FROM users WHERE id = ? AND password_hash = ?", (user["id"], user["password_hash"])).fetchone()
             if current is None:
                 raise APIError(401, "unauthenticated")
-            if upgraded_hash != user["password_hash"]:
-                db.execute("UPDATE users SET password_hash = ? WHERE id = ?", (upgraded_hash, user["id"]))
             db.execute("INSERT INTO tokens VALUES(?, ?)", (token, user["id"]))
         self.send_json(200, {"user_id": user["id"], "display_name": user["display_name"], "token": token})
 

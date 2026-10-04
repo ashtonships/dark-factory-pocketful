@@ -5,7 +5,7 @@ import sqlite3
 from datetime import datetime
 from decimal import Decimal
 
-from core import APIError, HANDLE_PATTERN, MAX_BALANCE, TABLES, email_key, get_meta, identifier, number_as_integer, retain_clock, valid_email, valid_password_hash, validation, write_transaction
+from core import APIError, HANDLE_PATTERN, MAX_BALANCE, PASSWORD_ITERATIONS, TABLES, email_key, get_meta, identifier, number_as_integer, retain_clock, valid_email, validation, write_transaction
 from holds import STATUSES, clock, expiry, lifetime, record_expiries, remaining
 from history_store import HISTORY_TABLES, upgrade_tables, validate as validate_history
 from history import instant, parse_instant
@@ -115,7 +115,7 @@ def validate_state(db, envelope, now):
             validation("Invalid user")
         if user["handle"] in handles or user["email_key"] in emails or not 0 <= user["balance"] <= MAX_BALANCE:
             validation("Invalid wallet")
-        if not re.fullmatch(r"[0-9a-f]{32}", user["password_salt"]) or not valid_password_hash(user["password_hash"]):
+        if not re.fullmatch(r"[0-9a-f]{32}", user["password_salt"]) or not re.fullmatch(rf"(?:pbkdf2_sha256\$(?:{PASSWORD_ITERATIONS}|20000)\$)?[0-9a-f]{{64}}", user["password_hash"]):
             validation("Invalid password hash")
         handles.add(user["handle"])
         emails.add(user["email_key"])
