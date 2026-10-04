@@ -2,7 +2,7 @@
 const assert = require("node:assert/strict");
 const { chromium } = require("playwright-core");
 const base = process.argv[2];
-if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(base || "")) throw new Error("Pass an isolated loopback devstub URL");
+if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(base || "")) throw new Error("Pass an isolated loopback HTTP service URL");
 const selector = id => '[data-testid="' + id + '"]';
 let failed = 0;
 let passed = 0;
@@ -28,7 +28,7 @@ async function balance(page, amount) {
   await page.waitForFunction(([target, value]) => document.querySelector(target)?.getAttribute("data-amount") === value, [selector("wallet-balance"), String(amount)]);
 }
 async function settle(page) {
-  await page.waitForFunction(() => !document.querySelector("#pay-messages .notice-pending") && !document.querySelector("#refresh-status .notice-pending"));
+  await page.waitForFunction(() => !document.querySelector("#pay-messages .notice-pending, #pay-messages .pending-line, #refresh-status .notice-pending, #refresh-status .pending-line"));
 }
 async function run() {
   const browser = await chromium.launch({ executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", headless: true });
@@ -51,6 +51,108 @@ async function run() {
       }
       await call("/_test/reset", fixture());
       await signIn(page);
+      if (process.argv.includes("--presence")) {
+        await check("binding controls are at least 44px high", async () => {
+          const height = await page.locator(selector("logout-button")).evaluate(element => element.getBoundingClientRect().height);
+          assert.ok(height >= 44, "logout-button height=" + height);
+        });
+        await check("zero holds omit wallet-held and available is headline", async () => {
+          assert.equal(await page.locator(selector("wallet-held")).count(), 0);
+          const sizes = await page.evaluate(() => ["wallet-available", "wallet-balance"].map(id => parseFloat(getComputedStyle(document.querySelector('[data-testid="' + id + '"]')).fontSize)));
+          assert.ok(sizes[0] > sizes[1]);
+        });
+        const seeded = fixture();
+        seeded.requests = [
+          { id: "rq_in", requester_id: "u_bob", payer_id: "u_ada", amount: 500, note: "incoming", status: "pending" },
+          { id: "rq_out", requester_id: "u_ada", payer_id: "u_bob", amount: 250, note: "outgoing", status: "pending" }
+        ];
+        await call("/_test/reset", seeded);
+        await signIn(page);
+        await page.goto(base + "/requests", { waitUntil: "domcontentloaded" });
+        await page.locator(selector("request-pay-rq_in")).waitFor();
+        await check("request buttons belong only to pending permitted direction", async () => {
+          assert.equal(await page.locator(selector("request-decline-rq_in")).count(), 1);
+          assert.equal(await page.locator(selector("request-cancel-rq_in")).count(), 0);
+          assert.equal(await page.locator(selector("request-cancel-rq_out")).count(), 1);
+          assert.equal(await page.locator(selector("request-pay-rq_out")).count(), 0);
+        });
+        const sessionResponse = await fetch(base + "/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: "bob@example.com", password: "correct horse" }) });
+        const session = await sessionResponse.json();
+        const cancellation = await fetch(base + "/requests/rq_in/cancel", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + session.token }, body: "{}" });
+        assert.equal(cancellation.status, 200);
+        await page.locator(selector("request-pay-rq_in")).click();
+        await check("stale cancelled request shows refusal and refresh removes pay", async () => {
+          await page.locator(selector("request-error")).waitFor();
+          await page.waitForFunction(target => document.querySelector(target)?.getAttribute("data-status") === "cancelled", selector("request-item-rq_in"));
+          assert.equal(await page.locator(selector("request-pay-rq_in")).count(), 0);
+        });
+        await page.locator(selector("request-cancel-rq_out")).click();
+        await check("successful cancel refreshes row and removes its action", async () => {
+          await page.waitForFunction(target => document.querySelector(target)?.getAttribute("data-status") === "cancelled", selector("request-item-rq_out"));
+          assert.equal(await page.locator(selector("request-cancel-rq_out")).count(), 0);
+        });
+        const heldFixture = fixture();
+        heldFixture.authorizations = [{ id: "a_in", from_user_id: "u_bob", to_user_id: "u_ada", amount: 1000, note: "capture retry", visibility: "private", status: "open", expires_at: new Date(Date.now() + 7200000).toISOString() }];
+        await call("/_test/reset", heldFixture);
+        await signIn(page);
+        await page.goto(base + "/authorizations", { waitUntil: "domcontentloaded" });
+        await page.locator(selector("authorization-capture-a_in")).waitFor();
+        await check("incoming open hold has capture only, default amount and final mode", async () => {
+          assert.equal(await page.locator(selector("authorization-capture-amount-a_in")).inputValue(), "10.00");
+          assert.equal(await page.locator(selector("authorization-keep-open-a_in")).isChecked(), false);
+          assert.equal(await page.locator(selector("authorization-void-a_in")).count(), 0);
+          assert.equal(await page.locator(selector("authorization-captured-a_in")).count(), 0);
+        });
+        const captures = [];
+        const captureUrl = base + "/authorizations/a_in/capture";
+        page.on("request", request => { if (request.url() === captureUrl) captures.push({ key: request.headers()["idempotency-key"], body: request.postData() }); });
+        let releaseFirst;
+        let markCommitted;
+        let markRead;
+        let captureCount = 0;
+        const firstReleased = new Promise(resolve => { releaseFirst = resolve; });
+        const firstCommitted = new Promise(resolve => { markCommitted = resolve; });
+        const readStarted = new Promise(resolve => { markRead = resolve; });
+        const delayedReads = [];
+        await page.route(captureUrl, async route => {
+          captureCount++;
+          if (captureCount === 1) {
+            const response = await route.fetch();
+            markCommitted();
+            await firstReleased;
+            await route.fulfill({ response });
+          } else if (captureCount === 2) {
+            await route.fetch();
+            await route.abort("failed");
+          } else await route.continue();
+        });
+        await page.locator(selector("authorization-keep-open-a_in")).check();
+        await page.locator(selector("authorization-capture-amount-a_in")).fill("3");
+        await page.locator(selector("authorization-capture-a_in")).click();
+        await firstCommitted;
+        await page.locator(selector("authorization-capture-amount-a_in")).fill("2");
+        await page.locator(selector("authorization-capture-a_in")).click();
+        await page.locator(selector("authorization-uncertain")).waitFor();
+        await page.route(base + "/authorizations?limit=200", route => { delayedReads.push(route); markRead(); });
+        releaseFirst();
+        await readStarted;
+        const retryResponse = page.waitForResponse(response => response.url() === captureUrl && response.request().postData() === captures[1].body);
+        await page.locator(selector("authorization-capture-a_in")).click();
+        await retryResponse;
+        const token = await page.evaluate(() => localStorage.getItem("pocketful.token"));
+        const captureState = await fetch(base + "/authorizations", { headers: { Accept: "application/json", Authorization: "Bearer " + token } });
+        const afterRetry = (await captureState.json()).authorizations.find(authorization => authorization.authorization_id === "a_in");
+        await check("late earlier capture does not erase uncertain newer retry identity", async () => {
+          assert.equal(captures[2].body, captures[1].body);
+          assert.equal(captures[2].key, captures[1].key, "late earlier success discarded the newer capture key; captured_amount=" + afterRetry.captured_amount + ", expected500");
+          assert.equal(afterRetry.captured_amount, 500, "unchanged retry must not capture again");
+        });
+        await page.unroute(captureUrl);
+        await page.unroute(base + "/authorizations?limit=200");
+        for (const route of delayedReads) await route.continue().catch(() => {});
+        await call("/_test/reset", fixture());
+        await signIn(page);
+      }
       if (process.argv.includes("--d11")) {
         const authorizations = [];
         page.on("request", request => {
@@ -128,17 +230,22 @@ async function run() {
         assert.equal(await page.locator('[data-testid^="activity-note-"]').textContent(), "  <img src=x onerror=window.XSS=2> e\u0301 😀");
       });
       await check("unchanged resubmit replays one payment", async () => {
-        await page.locator(selector("pay-submit")).click();
-        await page.waitForResponse(response => response.url() === base + "/me");
+        await Promise.all([
+          page.waitForResponse(response => response.url() === base + "/me"),
+          page.locator(selector("pay-submit")).click()
+        ]);
         await settle(page);
         assert.equal(writes.at(-1).key, writes.at(-2).key);
         assert.equal(await page.locator('[data-testid^="activity-item-"]').count(), 1);
       });
       await page.locator(selector("pay-amount")).fill("15.00");
-      await page.locator(selector("pay-submit")).click();
-      await page.waitForResponse(response => response.url() === base + "/me");
+      await Promise.all([
+        page.waitForResponse(response => response.url() === base + "/me"),
+        page.locator(selector("pay-submit")).click()
+      ]);
       await settle(page);
       await check("edited amount text creates a new payment identity", async () => {
+        await balance(page, 7000);
         assert.notEqual(writes.at(-1).key, writes.at(-2).key);
         assert.equal(await page.locator(selector("wallet-balance")).getAttribute("data-amount"), "7000");
       });

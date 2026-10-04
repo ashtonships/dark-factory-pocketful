@@ -118,6 +118,44 @@ updates, private receipt/feed separation, unchanged replay, refused input preser
 presence on the authorizations route. These results close PF-A1–4 as review findings; they are not
 Checker acceptance or integration evidence against the actual stage-2 money service.
 
+## W-7 real-service review
+
+```sh
+node adversary/pocketful/review_core.js /Users/ashton/DarkFactory/band-work/pf-a f220845 stage-2/ui/pocketful-core.js
+NODE_PATH=/Volumes/SSD/overflow/darkfactory/b2-pw/node_modules TMPDIR=/tmp node adversary/pocketful/review_style.js /Users/ashton/DarkFactory/band-work/pf-a f220845
+/Users/ashton/DarkFactory/tools/with-check-lock python3.12 -B adversary/pocketful/run_real_review.py --revision f220845 --report /Volumes/SSD/overflow/darkfactory/pf-w7-f220845-real-review-repeat.json
+```
+
+The real runner archives the pinned stage-2 Git tree, builds a disposable Docker image, runs one
+2-CPU/2-GiB service, and exercises its HTTP API with Chrome at 1280 and 375 pixels. It never uses
+the development stub. Browser requests are restricted to the loopback service origin. Docker uses
+the default bridge to avoid the previously starved internal-network control steps; this is not a
+new proof of no-outbound deployment. API credentials stay in memory and browser profiles stay on
+the internal disk. Source/build files and nonsecret reports are on the SSD. A bounded preflight
+requires host load below 40 and Docker version response below three seconds before runtime work.
+
+At 9332b9f the core suite passes 11/11 and the first real-container run passes 40/42. Both failures
+are PF-A6: Sign out is 40 pixels tall rather than the binding 44 pixels, at both widths. The
+superseding f220845 fixes it in source, isolated CSS and real browser probes. The first f220845
+run also exposes the same capture retry defect at both widths. Its unrelated early-read assertion
+at 375 pixels used an obsolete loading selector; the retained runner now waits for both old and
+new loading classes and explicitly for the expected balance before checking raw-amount identity.
+The original report is retained, not overwritten or counted as three product findings.
+
+The capture counterexample starts with an incoming open hold of 1000 minor units. Submit a
+nonfinal 300 capture, commit it through the real API but hold its response. Change the input to
+200 and submit another nonfinal capture; commit it but drop its response. Wait for uncertainty,
+then deliver the older 300 success while holding the ensuing list read. Retry the unchanged 200
+input. At f220845 the retry body is unchanged but its key is new, and cumulative captured money
+is 700 rather than 500. The older success unconditionally calls `api.keys.forget(slotName)`
+before the submission's stale-ticket guard, discarding the newer uncertain capture's identity.
+This is client retry evidence, not a server idempotency failure or an acceptance verdict.
+
+The retained presence checks also cover zero held funds, available as the largest money number,
+incoming/outgoing pending request actions, another client's cancellation followed by refused pay
+and refresh, successful cancellation refresh, and incoming open hold default final capture mode.
+PF-A1–4, D-11 home holds, XSS text, unchanged replay and simultaneous pay submissions are retained.
+
 ## Mutation measurements
 
 ```sh
