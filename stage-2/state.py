@@ -6,20 +6,16 @@ from datetime import datetime
 from decimal import Decimal
 
 from core import HANDLE_PATTERN, MAX_BALANCE, PASSWORD_ITERATIONS, TABLES, email_key, identifier, number_as_integer, valid_email, validation, write_transaction
-from holds import STATUSES, clock, expiry, lifetime, remaining
+from holds import STATUSES, clock, expiry, lifetime, record_expiries, remaining
 
 
-NULLABLE = {("payments", "request_id"), ("payments", "settlement_id"), ("payments", "authorization_id"), ("requests", "payment_id"), ("authorizations", "payment_id")}
+NULLABLE = {("payments", "request_id"), ("payments", "settlement_id"), ("payments", "authorization_id"), ("requests", "payment_id"), ("authorizations", "payment_id"), ("authorization_events", "payment_id")}
 
 
 def export_state(db):
-    db.execute("BEGIN")
-    try:
+    with write_transaction(db):
+        record_expiries(db, clock())
         tables = {table: [dict(row) for row in db.execute(f"SELECT * FROM {table} ORDER BY rowid")] for table in TABLES}
-        db.execute("COMMIT")
-    except BaseException:
-        db.execute("ROLLBACK")
-        raise
     return {"track": "pocketful", "format_version": 1, "state": {"schema_version": 1, "tables": tables}}
 
 
@@ -50,10 +46,11 @@ def validate_state(db, envelope):
     if not isinstance(state, dict) or number_as_integer(state.get("schema_version"), 1, 1) != 1:
         validation("Invalid state")
     tables = state.get("tables")
-    if not isinstance(tables, dict) or set(tables) not in (set(TABLES), set(TABLES) - {"authorizations"}):
+    if not isinstance(tables, dict) or set(tables) not in (set(TABLES), set(TABLES) - {"authorization_events"}, set(TABLES) - {"authorization_events", "authorizations"}):
         validation("Invalid state tables")
     legacy = "authorizations" not in tables
     tables = dict(tables)
+    tables.setdefault("authorization_events", [])
     if legacy:
         tables["authorizations"] = []
         tables["payments"] = [dict(row, authorization_id=None) if isinstance(row, dict) else row for row in tables.get("payments", [])] if isinstance(tables.get("payments"), list) else tables.get("payments")
@@ -88,7 +85,7 @@ def validate_state(db, envelope):
                 validation("Invalid record identity")
             if "seq" in normalized and normalized["seq"] < 1:
                 validation("Invalid sequence")
-            for field in ("created_at", "committed_at", "expires_at"):
+            for field in ("created_at", "committed_at", "expires_at", "event_at"):
                 if field in normalized and not valid_time(normalized[field]):
                     validation("Invalid timestamp")
             prepared[table].append(normalized)
@@ -170,6 +167,40 @@ def validate_state(db, envelope):
         validation("Holds exceed wallet total")
     if any(row["authorization_id"] is not None and row["id"] not in capture_owners for row in payments.values()):
         validation("Unlisted authorization capture")
+    seen_capture_events = set()
+    seen_closures = set()
+    previous_times = {}
+    for event in sorted(prepared["authorization_events"], key=lambda item: item["seq"]):
+        hold = authorizations.get(event["authorization_id"])
+        if hold is None or event["kind"] not in ("capture", "void", "expiry") or not 0 <= event["remaining_amount"] <= hold["amount"]:
+            validation("Invalid authorization event")
+        event_time = expiry(event["event_at"])
+        if (event["kind"] != "expiry" and event_time < expiry(hold["created_at"])) or event_time > now or event["authorization_id"] in seen_closures:
+            validation("Invalid authorization event time")
+        if event_time < previous_times.get(hold["id"], event_time):
+            validation("Unordered authorization events")
+        previous_times[hold["id"]] = event_time
+        if event["kind"] == "capture":
+            payment = payments.get(event["payment_id"])
+            if payment is None or capture_owners.get(payment["id"]) != hold["id"] or payment["id"] in seen_capture_events or expiry(payment["created_at"]) != event_time or event_time >= expiry(hold["expires_at"]):
+                validation("Invalid capture event")
+            seen_capture_events.add(payment["id"])
+            payment_ids = stored_json(hold["payment_ids_json"], list)
+            later = payment_ids[payment_ids.index(payment["id"]) + 1:]
+            expected_remaining = hold["amount"] - hold["captured_amount"] + sum(payments[pid]["amount"] for pid in later)
+            if event["remaining_amount"] != expected_remaining and event["remaining_amount"] != 0:
+                validation("Invalid capture remainder")
+            if event["remaining_amount"] == 0 and (hold["status"] != "captured" or hold["payment_id"] != payment["id"]):
+                validation("Invalid final capture event")
+        else:
+            if event["payment_id"] is not None or event["remaining_amount"] != 0:
+                validation("Invalid release event")
+            if event["kind"] == "void" and (hold["status"] != "voided" or event_time >= expiry(hold["expires_at"])):
+                validation("Invalid void event")
+            if event["kind"] == "expiry" and (hold["status"] not in ("open", "expired") or event_time != expiry(hold["expires_at"])):
+                validation("Invalid expiry event")
+        if event["remaining_amount"] == 0:
+            seen_closures.add(hold["id"])
     for row in prepared["requests"]:
         if row["requester_id"] not in users or row["payer_id"] not in users or row["requester_id"] == row["payer_id"]:
             validation("Invalid request parties")
