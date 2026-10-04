@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#136C63">
+<title>Split · Pocketful</title>
+<link rel="stylesheet" href="/ui/theme.css">
+<script src="/ui/pocketful-core.js" defer></script>
+<script src="/ui/app.js" defer></script>
+</head>
+<body data-page="split">
+<a class="skip" href="#main">Skip to content</a>
+<header id="shell" class="topbar"><div class="shell"><span class="brand">Pocketful</span></div></header>
+<main id="main" class="page page-split">
+  <header class="page-head">
+    <h1>Split a bill</h1>
+    <p class="lede">Create requests to split an expense you paid. No money moves until each person pays.</p>
+  </header>
+  <div class="two-up two-up-split">
+    <form class="card form" id="split-form" novalidate>
+      <div class="field">
+        <label for="split-amount" data-currency-label="Amount">Amount</label>
+        <input id="split-amount" data-testid="split-amount" data-amount-input inputmode="decimal" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="split-handles">Participants <span class="optional">(comma-separated handles)</span></label>
+        <input id="split-handles" data-testid="split-handles" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="ada, bob, cy" aria-describedby="split-handles-hint">
+        <p class="field-hint" id="split-handles-hint">In order, for example: ada, bob, cy. Include yourself to take a share.</p>
+      </div>
+      <div class="field">
+        <label for="split-note">Note <span class="optional">(optional)</span></label>
+        <input id="split-note" data-testid="split-note" maxlength="200" autocomplete="off" placeholder="e.g. Lunch">
+      </div>
+      <button type="submit" class="button button-primary button-block" data-testid="split-submit">Create split</button>
+      <div id="split-messages" class="messages" aria-live="polite"></div>
+    </form>
+    <section class="card preview-card" aria-labelledby="preview-title">
+      <h2 id="preview-title">Share preview</h2>
+      <p class="info-box"><span class="info-dot" aria-hidden="true">i</span>This is a preview. No money is sent yet.</p>
+      <div data-testid="split-preview" class="preview" aria-live="polite"><div class="skeleton" role="status"><span class="sr-only">Loading…</span><div class="skeleton-row" aria-hidden="true"><span class="sk-dot"></span><span class="sk-lines"><span></span><span></span></span></div><div class="skeleton-row" aria-hidden="true"><span class="sk-dot"></span><span class="sk-lines"><span></span><span></span></span></div><div class="skeleton-row" aria-hidden="true"><span class="sk-dot"></span><span class="sk-lines"><span></span><span></span></span></div></div></div>
+    </section>
+  </div>
+</main>
+</body>
+</html>
