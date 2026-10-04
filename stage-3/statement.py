@@ -200,21 +200,31 @@ def export_snapshots(db):
     return [_exported(value["token"], value["owner"], value["head"], value["entries"]) for value in sorted(live, key=lambda value: value["token"])]
 
 
-def import_snapshots(db, items):
-    """Replace the store with exported snapshots bound to this service's generation.
-    None means the export carried no snapshots. Everything is validated before the
-    store changes, so a rejected import leaves the existing tokens in place."""
+def validate_snapshots(items):
+    """The export's `snapshots` value (None: no snapshots), checked and normalized.
+    Raises 422 validation_failed on any bad shape, without touching the store."""
     if items is None:
-        items = []
+        return []
     if not isinstance(items, list):
         validation("Invalid snapshots")
-    generation = _generation(db)
-    restored = {}
+    seen = set()
+    valid = []
     for item in items:
         token, user_id, head, entries = _imported(item)
-        if token in restored:
+        if token in seen:
             validation("Duplicate snapshot token")
-        restored[token] = {"owner": user_id, "generation": generation, "head": head, "entries": entries, "token": token}
+        seen.add(token)
+        valid.append((token, user_id, head, entries))
+    return valid
+
+
+def import_snapshots(db, items):
+    """Restore exported snapshots, bound to this service's current generation.
+    Existing tokens stay until reset; an imported token replaces one with the same
+    value. Everything is validated before the store changes.
+    Stage-3 keeps them in process memory: call this after the import commits."""
+    generation = _generation(db)
+    restored = {token: {"owner": user_id, "generation": generation, "head": head, "entries": entries, "token": token}
+                for token, user_id, head, entries in validate_snapshots(items)}
     with _snapshots_lock:
-        _snapshots.clear()
         _snapshots.update(restored)
