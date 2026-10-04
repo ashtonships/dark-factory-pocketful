@@ -17,6 +17,7 @@ from core import (
 from state import export_state, import_state
 from history_store import baseline, original
 import statement
+import batches
 from corrections import correct, refund, revisions
 from history import instant, parse_instant
 from holds import STATUSES, authorization_body, capture_value, clock, effective_status, expiry, lifetime, record_event, wallet_funds
@@ -44,6 +45,7 @@ ROUTES = {
     "/splits": {"POST"},
     "/activity": {"GET"},
     "/settlements": {"POST"},
+    "/correction-batches": {"POST"},
     "/authorizations": {"GET", "POST"},
 }
 
@@ -349,6 +351,11 @@ class PocketfulHandler(BaseHTTPRequestHandler):
                 user = self.authenticate(db)
                 if self.body_too_large:
                     validation("Body is too large")
+                if path == "/correction-batches":
+                    if db.execute("SELECT 1 FROM operators WHERE user_id = ?", (user["id"],)).fetchone() is None:
+                        raise APIError(403, "forbidden")
+                    self.idempotent(db, user, path, json_body(raw_body), lambda db, user, body: batches.create(self, db, user, body))
+                    return
                 action = REQUEST_ACTION.fullmatch(path)
                 authorization_action = AUTHORIZATION_ACTION.fullmatch(path)
                 if authorization_action and authorization_action.group(2) == "void":

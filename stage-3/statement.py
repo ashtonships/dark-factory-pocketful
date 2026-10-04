@@ -8,9 +8,13 @@ the handler's single clock reading as "now" (D-16, 9015).
 Snapshots are kept in this process until reset (ledger 2084-2094): each one is
 bound to its owner and to the reset generation it was taken in, and holds the
 complete, already computed window, so paging never recomputes anything.
+export_snapshots/import_snapshots carry them through /_test/export and import
+(D-27, 3046); imported tokens bind to the importing service's generation.
 """
+import copy
 import secrets
 import threading
+from decimal import Decimal
 from urllib.parse import parse_qs, urlsplit
 
 import history
@@ -132,3 +136,95 @@ def _page(snapshot, limit, offset):
     result["has_more"] = offset + limit < len(entries)
     result["snapshot"] = snapshot["token"]
     return result
+
+
+HEAD_NUMBERS = ("opening_balance", "closing_balance")
+HEAD_TEXTS = ("from", "to", "known_at")
+
+
+def _plain(value):
+    """Imported JSON numbers arrive as Decimal; frozen results hold only integers."""
+    if isinstance(value, bool) or value is None or isinstance(value, (str, int)):
+        return value
+    if isinstance(value, Decimal):
+        if not value.is_finite() or value != value.to_integral_value():
+            validation("Invalid snapshot number")
+        return int(value)
+    if isinstance(value, list):
+        return [_plain(item) for item in value]
+    if isinstance(value, dict) and all(isinstance(key, str) for key in value):
+        return {key: _plain(item) for key, item in value.items()}
+    validation("Invalid snapshot value")
+
+
+def _integer(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _imported(item):
+    """One exported snapshot, checked and normalized; the result is fully self-consistent."""
+    if not isinstance(item, dict):
+        validation("Invalid snapshot")
+    token, user_id, result = item.get("token"), item.get("user_id"), _plain(item.get("result"))
+    if not isinstance(token, str) or not token or not isinstance(user_id, str) or not user_id or not isinstance(result, dict):
+        validation("Invalid snapshot")
+    head = {}
+    for name in HEAD_NUMBERS:
+        if not _integer(result.get(name)):
+            validation("Invalid snapshot balance")
+        head[name] = result[name]
+    for name in HEAD_TEXTS:
+        if name in result:
+            if not isinstance(result[name], str):
+                validation("Invalid snapshot window")
+            head[name] = result[name]
+    entries = result.get("entries")
+    if not isinstance(entries, list) or not all(
+            isinstance(entry, dict) and isinstance(entry.get("payment"), dict) and _integer(entry.get("delta")) and _integer(entry.get("balance_after"))
+            for entry in entries):
+        validation("Invalid snapshot entries")
+    if head["opening_balance"] + sum(entry["delta"] for entry in entries) != head["closing_balance"]:
+        validation("Snapshot balances do not add up")
+    return token, user_id, head, entries
+
+
+def _exported(token, user_id, head, entries):
+    return {"token": token, "user_id": user_id, "result": copy.deepcopy(dict(head, entries=entries))}
+
+
+def export_snapshots(db):
+    """Every live snapshot (current generation) as JSON-safe dicts, sorted by token."""
+    generation = _generation(db)
+    with _snapshots_lock:
+        live = [value for value in _snapshots.values() if value["generation"] == generation]
+    return [_exported(value["token"], value["owner"], value["head"], value["entries"]) for value in sorted(live, key=lambda value: value["token"])]
+
+
+def validate_snapshots(items):
+    """The export's `snapshots` value (None: no snapshots), checked and normalized.
+    Raises 422 validation_failed on any bad shape, without touching the store."""
+    if items is None:
+        return []
+    if not isinstance(items, list):
+        validation("Invalid snapshots")
+    seen = set()
+    valid = []
+    for item in items:
+        token, user_id, head, entries = _imported(item)
+        if token in seen:
+            validation("Duplicate snapshot token")
+        seen.add(token)
+        valid.append((token, user_id, head, entries))
+    return valid
+
+
+def import_snapshots(db, items):
+    """Restore exported snapshots, bound to this service's current generation.
+    Existing tokens stay until reset; an imported token replaces one with the same
+    value. Everything is validated before the store changes.
+    Stage-3 keeps them in process memory: call this after the import commits."""
+    generation = _generation(db)
+    restored = {token: {"owner": user_id, "generation": generation, "head": head, "entries": entries, "token": token}
+                for token, user_id, head, entries in validate_snapshots(items)}
+    with _snapshots_lock:
+        _snapshots.update(restored)
