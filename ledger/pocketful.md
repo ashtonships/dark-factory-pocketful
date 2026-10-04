@@ -69,6 +69,34 @@ quotes” (the quote is what `tools/spec_coverage.py` matches). `N/A:` lines are
   in the future, the request is valid and the window is empty (opening = closing = the balance immediately before
   `from`). Reason: the caller supplied no inverted range, and the spec allows future query instants.
 
+- **D-21 Refund precedence**: 401 auth → 400 body → 400/422 idempotency key → claimed-key resolution (200 replay /
+  409 `idempotency_key_reuse`) → 400 wrong JSON type → 422 `validation_failed` amount (positive integer minor units,
+  as for payments) → 404 unknown payment → 403 `forbidden` (caller is not the target's receiver) → 422
+  `invalid_refund_target` (target is a refund) → 422 `refund_exceeds_payment` → 409 `insufficient_funds`. Reason: it
+  follows D-2 (validation before 404 before 403 before state). A refund's payer cannot be its own target's receiver,
+  so 403 hides nothing.
+- **D-22 Refund shape**: payer = the target's receiver, receiver = the target's payer, revision 1, effective_at =
+  recorded_at = now; refunding a capture leaves its authorization as it is. "Current corrected amount" is the amount
+  of the target's latest revision, and the refunded total is the sum of its refunds. A correction to an amount below
+  the refunded total is 422 `refund_exceeds_payment`, judged after `stale_revision`.
+- **D-23 Batch precedence**: 401 → 403 non-operator → 400 body → idempotency key → claimed-key resolution → 422
+  `corrections` not a list of 1..32 objects or duplicate payment_ids → per item in input order: 422 field validation,
+  404 unknown payment, 409 `stale_revision`, 422 `linked_payment_immutable` (capture or refund), 422
+  `refund_exceeds_payment` → 422 `incomplete_settlement` → 422 `validation_failed` (members' effective instants
+  differ) → 409 `insufficient_funds` (resulting current available funds, all revisions combined) → 422
+  `historical_overdraft` (every effective/event boundary, all revisions combined). Reason: it is the spec's order
+  (3031). The instant rule needs every member present, so it follows completeness. Item errors come first for each
+  item, so an earlier item's 404 beats a later item's stale revision.
+- **D-24 Upgrade format**: export keeps `format_version: 1` and adds `refund_of`, refunded totals derive from
+  refunds, and batch ids are kept on revisions with replay bodies. A stage-4 import accepts stage-1, 2 and 3 exports
+  unchanged (absent `refund_of` = null; no batches). Snapshots and settlement membership survive export → import.
+- **D-25 Concurrency**: single corrections and batch items claim `(payment_id, expected_revision)` inside the same
+  `BEGIN IMMEDIATE` transaction, so two writes sharing an expected revision cannot both commit (one gets 409
+  `stale_revision`). This holds across the two paths.
+- **D-26 Stage-4 cut**: stage 4 must be accepted (gate green) by Sun 14:00 CDT. Otherwise the entry is stages 1–3 at
+  main f556fba and stage-4/ is removed from the submission. Reason: it leaves 4 h for the final review and report
+  before 18:00.
+
 ## Work items (stage 1)
 
 | Item | Seat | Entries | Scope |
@@ -84,6 +112,16 @@ quotes” (the quote is what `tools/spec_coverage.py` matches). `N/A:` lines are
 | W-9 | Builder | stage-3 write side (W-9 entries in Stage 3) | Payment timestamps, revisions, corrections, overdraft checks, linked-payment immutability, stage-1/2 import |
 | W-10 | Builder-Two | stage-3 read side (W-10 entries in Stage 3) | as_of/known_at views of /me, statements, snapshots, historical holds, in a separate module |
 | W-8 | Builder | 1001–1002, 1013–1014, 1095, 1102–1202, 1204, 1222 | Stage-2 server: copy of frozen stage-1/, holds and captures, available-based funds, HTML routing, static UI, stage-1 import |
+
+## Work items (stage 4)
+
+- **W-11 (Builder)**: stage-4/ copy of stage-3 tree 276ec0a8a545 (commit first, alone), then refunds, `refund_of`
+  on every payment, the 3017–3020 correction rules, upgrade/import (D-24), RUN.md/Dockerfile. Entries 3001,
+  3003–3020, 3038, 3039, 3043, 3045. Owns core.py, state.py, history*.py, corrections.py, holds.py.
+- **W-12 (Builder-Two)**: `POST /correction-batches` in a new stage-4/batches.py plus its route hook in server.py,
+  statements after batches, concurrency (D-23, D-25). Entries 3002, 3021, 3023–3037, 3040–3042, 3044. Owns
+  batches.py, statement.py, and the route lines in server.py. It calls corrections.py functions and asks Builder
+  for any change there.
 
 ## Practice-run lessons (made entries so the same faults cannot recur)
 
@@ -738,3 +776,51 @@ N/A: “No storage survival across container restarts is required.” — stage-
 2114. “`GET /statement` still contains money movements only: authorization, release and expiry are not payments.” — stage-3.md:175 · W-10
 2115. “Captures appear exactly once with their links.” — stage-3.md:176 · W-10
 2116. “Old snapshots remain unchanged after any lifecycle action or correction.” — stage-3.md:176 · W-10
+
+## Stage 4 entries
+
+3001. “Recipients can refund payments.” — stage-4.md:3 · W-11
+3002. “Settlement operators can correct several payments in one request, including payments that belong to a settlement.” — stage-4.md:3 · W-12
+3003. “Existing receipts and saved statements must remain available in their original form.” — stage-4.md:4 · W-11 · Receipts, payment bodies and saved snapshot tokens are never rewritten by refunds or batches (see 3038, 3040).
+3004. “All requirements from stages 1–3 continue to apply.” — stage-4.md:7 · W-11 · Regression: every stage 1–3 check runs against stage-4/.
+3005. “There are ten idempotent write paths: stage 1's five, authorizations and captures from stage 2, corrections from stage 3, and refunds and correction batches in this stage.” — stage-4.md:7 · W-11 · W-11 adds refunds, W-12 adds correction batches; both use the stage-1 idempotency rules (D-2, D-21, D-23).
+3006. “`POST /payments/{payment_id}/refunds`, body `{"amount": 200}`, requires an idempotency key.” — stage-4.md:13 · W-11
+3007. “Only the original receiver may refund, else 403 `forbidden`; unknown payment is 404.” — stage-4.md:14 · W-11
+3008. “The target may be a direct payment, request payment or capture, but never a refund.” — stage-4.md:14 · W-11
+3009. “Invalid amount is 422 `validation_failed`.” — stage-4.md:15 · W-11
+3010. “Refunds cumulatively may not exceed the payment's current corrected amount: 422 `refund_exceeds_payment`.” — stage-4.md:16 · W-11 · "Current corrected amount" is the amount of the latest revision (D-22).
+3011. “Refunds of refunds give 422 `invalid_refund_target`.” — stage-4.md:17 · W-11
+3012. “A refund is a new payment in the opposite direction, with `refund_of` naming the target, `request_id: null`, `authorization_id: null`, and the original note/visibility.” — stage-4.md:19 · W-11
+3013. “Return 201 with that payment; replay returns 200 with the original body.” — stage-4.md:20 · W-11
+3014. “It moves existing money from the receiver's **available** funds, or fails 409 `insufficient_funds`, atomically.” — stage-4.md:21 · W-11 · Available = total minus open holds (stage 2).
+3015. “Refunds never reopen a request or authorization or restore a released hold.” — stage-4.md:22 · W-11
+3016. “Other payments have `refund_of: null`.” — stage-4.md:23 · W-11
+3017. “Stage-3 corrections remain available for ordinary direct/request payments.” — stage-4.md:26 · W-11
+3018. “Captures and refund payments cannot themselves be corrected: 422 `linked_payment_immutable`.” — stage-4.md:26 · W-11
+3019. “A correction cannot reduce a payment below its already-refunded amount: 422 `refund_exceeds_payment`.” — stage-4.md:27 · W-11
+3020. “Correction debits are checked against available funds.” — stage-4.md:29 · W-11 · Stage-3 corrections and batches debit against available funds, not total.
+3021. “`POST /correction-batches` requires a settlement operator and an idempotency key, with the same 401/403 rules as settlements.” — stage-4.md:33 · W-12
+N/A: “Body:” — stage-4.md:34: introduces the example body; the obligations are 3023–3030.
+3023. “corrections contains 1..32 objects with distinct payment_ids, else 422 `validation_failed`.” — stage-4.md:43 · W-12
+3024. “Every item has the ordinary correction fields and validation.” — stage-4.md:44 · W-12
+3025. “Unknown payment is 404; a stale expected revision is 409 `stale_revision`.” — stage-4.md:44 · W-12
+3026. “The operator may correct ordinary, request and settlement payments, but captures and refunds remain immutable.” — stage-4.md:45 · W-12
+3027. “Correcting any settlement member requires including every member of that settlement, else 422 `incomplete_settlement`.” — stage-4.md:46 · W-12
+3028. “Members of one settlement must have identical effective instants (offset spellings may differ), else 422 `validation_failed`.” — stage-4.md:48 · W-12
+3029. “Ordinary single-payment corrections remain available for nonmembers.” — stage-4.md:49 · W-12
+3030. “Unknown fields are ignored.” — stage-4.md:50 · W-12
+3031. “Error precedence is: item errors in input order, settlement completeness, resulting current available funds, then historical total and available funds at every effective/event boundary.” — stage-4.md:52 · W-12 · Order fixed by D-23.
+3032. “The existing codes apply: `linked_payment_immutable`, `refund_exceeds_payment`, `insufficient_funds`, `historical_overdraft`.” — stage-4.md:54 · W-12
+3033. “Affordability is determined by the combined effect of all proposed revisions.” — stage-4.md:55 · W-12
+3034. “A rejected batch leaves history, balances and idempotency records unchanged.” — stage-4.md:56 · W-12
+3035. “Return 201 with `correction_batch_id`, `recorded_at` and `revisions` in input order.” — stage-4.md:59 · W-12
+3036. “All new revisions share recorded_at, strictly later than the previous recorded_at of every member; each revision also exposes correction_batch_id.” — stage-4.md:59 · W-12 · D-18 microsecond bump applies.
+3037. “Effective times cannot be later than now.” — stage-4.md:61 · W-12
+3038. “Original payments and receipts never change.” — stage-4.md:62 · W-11
+3039. “Original payment and settlement retries return their original bodies.” — stage-4.md:62 · W-11
+3040. “New statements reflect the new revisions; earlier snapshot tokens continue to page their frozen entries.” — stage-4.md:63 · W-12
+3041. “Replays return the original batch response with 200.” — stage-4.md:64 · W-12
+3042. “This adds one idempotent write path.” — stage-4.md:65 · W-12
+3043. “A settlement payment may be refunded under the existing refund rules, but refunds never change settlement membership.” — stage-4.md:67 · W-11
+3044. “Concurrent corrections sharing any expected payment revision cannot both succeed.” — stage-4.md:68 · W-12 · Applies to single corrections and batches alike, and across the two paths.
+3045. “A stage-4 service must accept exports produced by the same team's stages 1–3, retaining settlement membership, corrections and snapshots.” — stage-4.md:70 · W-11 · D-24: format_version stays 1; a stage-4 import accepts stage 1–3 exports; absent refund_of means null.

@@ -6,8 +6,8 @@ Updated by Coordinator. Ledger: `ledger/pocketful.md`. Time box: final report by
 |---|---|---|---|
 | 1 | ACCEPTED, FROZEN: GATE GREEN #4 at 57cc82e (stage-1 tree 8f19cbfb6d7e), harness s1 146/147 (1 reset ReadTimeout at load ~290), Checker 234/234; main ef11f77 + receipt fa85767; Sat 22:10 (ledger 273/273 sentences, 251 entries + 22 waivers + 9001–9003) | — | — |
 | 2 | ACCEPTED, FROZEN: GATE GREEN #6 at bc4cc1c (stage-2 tree ad34602f4b70), harness s1 147/147 + s2 35/35, Checker 329/329, load ~5; interface PASS (1017-1027); main abf639b + receipt 7c52233; Sun 01:45 | bc4cc1c | #6 |
-| 3 | in progress from 01:50: W-9 Builder (copy, history.py, writes), W-10 Builder-Two (statement.py, reads) | — | — |
-| 4 | CUT: stage 3 cannot be accepted by Sun 04:00 (cut rule) | — | — |
+| 3 | ACCEPTED, FROZEN: GATE GREEN #7 at 5413e25 (stage-3 tree 276ec0a8a545), harness s1 147/147 + s2 35/35 + s3 6/6, Checker 397/397; main 4bbf23d + receipt f556fba; Sun 02:13 | 5413e25 | #7 |
+| 4 | OPEN from 02:30 (stage 3 accepted before the 04:00 cut): W-11 Builder (copy, refunds, import), W-12 Builder-Two (correction batches). Cut D-26: accepted by 14:00 or entry = stages 1–3 | — | — |
 
 | Item | Seat | State | Entries | Evidence |
 |---|---|---|---|---|
@@ -55,3 +55,4 @@ Updated by Coordinator. Ledger: `ledger/pocketful.md`. Time box: final report by
 - 02:30: Checker's stage-3 dry run on 63e1fef (checks 7cb0e7c, W-9/W-10 in force at a48ed06): 387/388, the one failure a bug in Checker's own check (fixed); W-9+W-10 65/65 ×3; harness s1 147/147, s2 35/35, s3 6/6 (claimed stage 3, no overshoot). The overfit scan would be RED with two tokens: RUN.md '19' (Builder) and statement.py '-1' (Builder-Two); both sent for rewording. w10-dev/ to be removed from builder-two. Pending: Builder's scrypt/login commit.
 - 02:12: stage-3 candidate 5413e25 (builder-two: merge of Builder 8e1fc80, scrypt reverted, RUN.md reworded, onto W-10 802bbe3). Builder-Two evidence: stage-1/2 unchanged since receipt 7c52233; route hook and Dockerfile COPY intact; b2-w10-accept 79/79 (not evidence). Coordinator overfit scan of stage-3 at 5413e25: 377 candidates, 177 findings, 0 high. Stage-3 gate requested from Checker; Adversary asked to review the W-10 delta 53a3a1e..5413e25 before the verdict.
 - 02:20: background security review of 5413e25 raised 2 issues, both triaged as no action. (1) missing-authentication in stage-3/server.py: GET /statement calls authenticate() and snapshot lookups are owner- and generation-checked (statement.py:92); the unauthenticated routes are /_test/reset, /_test/export and /_test/import, which the spec requires (stage-1.md:254, :544). (2) weak-kdf in stage-3/core.py: the accepted risk 9019 (scrypt reverted for latency margin, bec1be7).
+- 02:30: stage 3 accepted (GATE GREEN #7, Checker 397/397). Adversary review of the W-10 delta still pending; any valid finding is fixed in stage-4/ and stage-3/ alike via a new ledger entry. Stage 4 opened: entries 3001–3045 (44 + 1 waiver), D-21..D-26, W-11/W-12 dispatched; Checker designs W-11/W-12 checks in parallel.
