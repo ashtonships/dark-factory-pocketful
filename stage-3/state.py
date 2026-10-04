@@ -5,7 +5,8 @@ import sqlite3
 from datetime import datetime
 from decimal import Decimal
 
-from core import APIError, HANDLE_PATTERN, MAX_BALANCE, PASSWORD_ITERATIONS, TABLES, email_key, get_meta, identifier, number_as_integer, retain_clock, valid_email, validation, write_transaction
+from core import APIError, HANDLE_PATTERN, MAX_BALANCE, PASSWORD_ITERATIONS, TABLES, WRITE_LOCK, email_key, get_meta, identifier, number_as_integer, retain_clock, valid_email, validation, write_transaction
+import statement
 from holds import STATUSES, clock, expiry, lifetime, record_expiries, remaining
 from history_store import HISTORY_TABLES, upgrade_tables, validate as validate_history
 from history import instant, parse_instant
@@ -18,7 +19,8 @@ def export_state(db):
     with write_transaction(db):
         record_expiries(db, clock())
         tables = {table: [dict(row) for row in db.execute(f"SELECT * FROM {table} ORDER BY rowid")] for table in TABLES}
-    return {"track": "pocketful", "format_version": 1, "state": {"schema_version": 1, "tables": tables}}
+        snapshots = statement.export_snapshots(db)
+    return {"track": "pocketful", "format_version": 1, "state": {"schema_version": 1, "tables": tables}, "snapshots":snapshots}
 
 
 def valid_time(value):
@@ -244,6 +246,14 @@ def validate_state(db, envelope, now):
 def import_state(db, envelope):
     now = clock()
     prepared = validate_state(db, envelope,now)
+    # Keep readers excluded until the committed rows and process snapshots agree.
+    with WRITE_LOCK:
+        snapshots = statement.validate_snapshots(envelope.get("snapshots"))
+        _import_rows(db,prepared,now)
+        statement.import_snapshots(db,snapshots)
+
+
+def _import_rows(db,prepared,now):
     with write_transaction(db):
         try:
             generation = get_meta(db)["reset_generation"]
