@@ -17,7 +17,7 @@ Updated by Coordinator. Ledger: `ledger/pocketful.md`. Time box: final report by
 | W-4 | Builder | 6bbce6d handed back (complete stage 1); stage gate requested | 232–273 | — |
 | W-5 | Builder-Two | handed back 77595cc; in Adversary code review | stage-2 UI | Builder-Two self-test 38/38 (not evidence) |
 | W-6 | Builder-Two | 73beaa0 → f074486 (D-11) → 93f3606 (fixes PF-A1..A4, survivor-11 test); in Adversary re-review | stage-2 UI | Builder-Two drill 109/109 (not evidence) |
-| W-D | Builder | open (starts when W-1 accepted) | stage-2 direction | — |
+| W-D | Builder | 57cc82e: 30 concepts (5 screens × A/B/C × desktop/phone); with Checker for the pick | 1016–1027 | — |
 
 ## Blockers and exceptions
 
@@ -39,3 +39,4 @@ Updated by Coordinator. Ledger: `ledger/pocketful.md`. Time box: final report by
 - Gate: GATE RED #1 stage 1 item rev ca640ffc9a88 (receipt line 1, main d5f64ac). Overfit high: core.py:216 '-1', server.py:218 '19'. Checker pre-run 157/158 (keep-alive drop at 5 s socket timeout; 50 logins slowest 13.3 s at host load about 270). Host load comes from other apps on this Mac (Codex/Claude renderers, Docker VM with unrelated CRM containers), not from our jobs.
 - Gate: GATE RED #2 stage 1 stage rev 6bbce6de286c (receipt line 2), with the same two overfit tokens. Checker's pre-run of all W-1..W-4 checks on 6bbce6d (checks 04e77d0, load 286 to 368): 224 passed, 3 failed. Two are the keep-alive idle close and one is the 50-login latency (13.9 s). Every W-3 and W-4 check passed, and Builder's W-4 readings were accepted. Rework is with Builder.
 - Gate: GATE RED #3 stage 1 stage rev 1f882fffb4ea tree 7130a693ac14 (receipt line 3, main 239bc21): overfit 0 high, harness s1 147/147, checker 233/234. The only failure is 50 concurrent logins, slowest 6.09 s against 5 s, at host load 143 to 338 (entries 30, 31, 116, 129). Decision (Sat 19:29): Builder cuts login CPU further, because a rerun waiting for low load is unbounded while other apps keep the load near 280. W-D design started at the same time, since it touches only design/ and the gate shows the data model green (harness 147/147).
+- W-1 login rework 86a0196 (5000 iterations, tagged), with W-D 57cc82e on top; stage-1 tree 8f19cbfb6d7e; stage gate requested at 57cc82e. W-8 assigned at the same time, based on that candidate tree.
