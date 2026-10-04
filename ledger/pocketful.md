@@ -64,6 +64,9 @@ quotes” (the quote is what `tools/spec_coverage.py` matches). `N/A:` lines are
   instead of inventing event times. To keep that case rare, stage 2 records the event time of every capture, void
   and expiry internally and includes it in its export. The time is not exposed in the stage-2 API.
 
+- **D-20 Statement window order**: `from` later than `to` is 422 `validation_failed` (an out-of-range value under
+  §5); `from` equal to `to` is a valid, empty window.
+
 ## Work items (stage 1)
 
 | Item | Seat | Entries | Scope |
