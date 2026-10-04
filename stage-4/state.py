@@ -4,6 +4,7 @@ import re
 import sqlite3
 from datetime import datetime
 from decimal import Decimal
+import statement
 
 from core import APIError, HANDLE_PATTERN, MAX_BALANCE, PASSWORD_ITERATIONS, TABLES, email_key, get_meta, identifier, number_as_integer, retain_clock, valid_email, validation, write_transaction
 from holds import STATUSES, clock, expiry, lifetime, record_expiries, remaining
@@ -18,7 +19,8 @@ def export_state(db):
     with write_transaction(db):
         record_expiries(db, clock())
         tables = {table: [dict(row) for row in db.execute(f"SELECT * FROM {table} ORDER BY rowid")] for table in TABLES}
-    return {"track": "pocketful", "format_version": 1, "state": {"schema_version": 1, "tables": tables}}
+        snapshots = statement.export_snapshots(db)
+    return {"track": "pocketful", "format_version": 1, "state": {"schema_version": 1, "tables": tables}, "snapshots":snapshots}
 
 
 def valid_time(value):
@@ -270,5 +272,6 @@ def import_state(db, envelope):
             except (ValueError,OverflowError):
                 validation("Invalid server clock high-water mark")
             retain_clock(retained)
+            statement.import_snapshots(db,envelope.get("snapshots"))
         except sqlite3.IntegrityError:
             validation("Duplicate or invalid state record")

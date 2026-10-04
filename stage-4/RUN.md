@@ -1,10 +1,10 @@
-# Pocketful stage 3
+# Pocketful stage 4
 
 From this directory, build and start the self-contained HTTP service:
 
 ```sh
-docker build -t pocketful-stage-3 .
-docker run --rm --cpus 2 --memory 2g -e PORT=18080 -p 18080:18080 pocketful-stage-3
+docker build -t pocketful-stage-4 .
+docker run --rm --cpus 2 --memory 2g -e PORT=18080 -p 18080:18080 pocketful-stage-4
 ```
 
 For isolated verification, replace the port mapping with `--network none` and check through `docker exec` against `http://127.0.0.1:18080/health` inside the container. No runtime operation needs outbound access. The container keeps its SQLite database on ephemeral local storage and accepts a fixture through `POST /_test/reset`.
@@ -26,3 +26,9 @@ Stage-3 history stores fixed `wallet_openings`, immutable `payment_revisions`, a
 Corrections append a revision and move only the difference from the latest amount, without changing original payments or receipts. A debit first checks current available funds, then the proposed history checks both parties' totals and available funds at combined past boundaries. All revision, money and idempotency state commit together. Settlement members and captures are immutable; request payments otherwise remain eligible. Revision history is visible only to parties. Authorizations expose `closed_at`: a captured/voided event time, the expiry deadline, or reset/import baseline time for an exempt seeded/legacy closed hold without a reconstructible lifecycle.
 
 Instant keys are opaque ordering keys, not elapsed-time quantities. They preserve arbitrary fractional precision and a separate UTC day-end slot for a leap second, so a leap instant does not compare equal to following midnight. W-10 should compare keys and use `inclusive=False` for exclusive boundaries rather than subtracting a duration from a key.
+
+Refunds create an opposite-direction payment and original revision, with `refund_of` linking the target. They copy its note and visibility, use the receiver's available funds, and never reopen a request or hold. Their cumulative amount cannot exceed the target's latest corrected amount. Captures and refunds remain immutable; ordinary corrections cannot fall below amounts already refunded. All movement, revision and saved response writes share one transaction. New non-refund payments carry a null refund link; imported original receipts retain their exact saved JSON.
+
+Correction batches use the shared helpers in `corrections.py`: ordered item preparation, combined wallet changes, one shared recorded time, provisional revision insertion, historical boundary checks and final balance updates. Nullable `correction_batch_id` links batch revisions; ordinary revisions have null links. Import validates refund linkage, batch records and complete settlement membership. Format version remains 1 and unchanged exports from stages 1–3 are accepted with missing new links set to null.
+
+Exports also carry an optional top-level `snapshots` array of opaque tokens, owners and frozen statement results. Imports restore these against the local reset generation without recomputing or rewriting the entries; an absent array leaves existing local tokens available until reset. Stage 4 persists snapshot rows in SQLite, outside the generic application-table export list. Snapshot imports share the ledger transaction and reject conflicting live token payloads. The amended stage-3 export/import uses the same array while retaining its process memory store, publishing it only after a successful import commit. Stage-1/2 exports need no changes.
