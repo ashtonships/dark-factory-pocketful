@@ -17,7 +17,7 @@ WRITE_LOCK = threading.RLock()
 HANDLE_PATTERN = re.compile(r"^[a-z0-9_]{1,20}$")
 MAX_BALANCE = 2**53
 PASSWORD_ITERATIONS = 5000
-TABLES = ("idempotency", "tokens", "payments", "requests", "splits", "settlements", "operators", "users", "meta")
+TABLES = ("idempotency", "tokens", "authorizations", "payments", "requests", "splits", "settlements", "operators", "users", "meta")
 
 
 class APIError(Exception):
@@ -119,7 +119,8 @@ def initialize():
                 seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
                 from_user_id TEXT NOT NULL, to_user_id TEXT NOT NULL,
                 amount INTEGER NOT NULL, note TEXT NOT NULL, visibility TEXT NOT NULL,
-                request_id TEXT, settlement_id TEXT, created_at TEXT NOT NULL
+                request_id TEXT, settlement_id TEXT, created_at TEXT NOT NULL,
+                authorization_id TEXT
             );
             CREATE INDEX IF NOT EXISTS payments_feed ON payments(created_at DESC, seq DESC);
             CREATE TABLE IF NOT EXISTS requests (
@@ -129,6 +130,15 @@ def initialize():
                 created_at TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS requests_feed ON requests(created_at DESC, seq DESC);
+            CREATE TABLE IF NOT EXISTS authorizations (
+                seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
+                from_user_id TEXT NOT NULL, to_user_id TEXT NOT NULL,
+                amount INTEGER NOT NULL, captured_amount INTEGER NOT NULL DEFAULT 0,
+                note TEXT NOT NULL, visibility TEXT NOT NULL, status TEXT NOT NULL,
+                expires_at TEXT NOT NULL, payment_id TEXT, payment_ids_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS authorizations_parties ON authorizations(from_user_id, to_user_id);
             CREATE TABLE IF NOT EXISTS splits (
                 seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
                 creator_id TEXT NOT NULL, amount INTEGER NOT NULL, note TEXT NOT NULL,
@@ -144,7 +154,7 @@ def initialize():
                 PRIMARY KEY(user_id, key, method, path)
             );
         """)
-        db.executemany("INSERT OR IGNORE INTO meta(key, value) VALUES(?, ?)", (("currency", "EUR"), ("minor_units", "2"), ("seed_total", "0")))
+        db.executemany("INSERT OR IGNORE INTO meta(key, value) VALUES(?, ?)", (("currency", "EUR"), ("minor_units", "2"), ("seed_total", "0"), ("authorization_ttl_seconds", "600")))
 
 
 def required_string(obj, key, fixture=False):
@@ -323,15 +333,19 @@ def validate_fixture(fixture):
 
 def reset(db, fixture):
     currency, minor_units, users, payments, requests, operators, total = validate_fixture(fixture)
+    from holds import prepare_fixture_authorizations
+    ttl, authorizations, payment_authorizations = prepare_fixture_authorizations(fixture, users, payments)
     created_at = timestamp()
     with write_transaction(db):
         for table in TABLES:
             db.execute(f"DELETE FROM {table}")
-        db.executemany("INSERT INTO meta(key, value) VALUES(?, ?)", (("currency", currency), ("minor_units", str(minor_units)), ("seed_total", str(total))))
+        db.executemany("INSERT INTO meta(key, value) VALUES(?, ?)", (("currency", currency), ("minor_units", str(minor_units)), ("seed_total", str(total)), ("authorization_ttl_seconds", str(ttl))))
         db.executemany("INSERT INTO users VALUES(?, ?, ?, ?, ?, ?, ?, ?)", users)
         db.executemany("INSERT INTO operators(user_id) VALUES(?)", ((user_id,) for user_id in operators))
         db.executemany("INSERT INTO payments(id, from_user_id, to_user_id, amount, note, visibility, request_id, settlement_id, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)", (payment + (created_at,) for payment in payments))
         db.executemany("INSERT INTO requests(id, requester_id, payer_id, amount, note, status, payment_id, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)", (request + (created_at,) for request in requests))
+        db.executemany("INSERT INTO authorizations(id, from_user_id, to_user_id, amount, captured_amount, note, visibility, status, expires_at, payment_id, payment_ids_json, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (row + (created_at,) for row in authorizations))
+        db.executemany("UPDATE payments SET authorization_id = ? WHERE id = ?", payment_authorizations)
 
 
 def get_meta(db):
@@ -346,6 +360,7 @@ def payment_body(db, row):
         "to_user_id": row["to_user_id"], "to_handle": target["handle"], "amount": row["amount"],
         "currency": get_meta(db)["currency"], "note": row["note"], "visibility": row["visibility"],
         "request_id": row["request_id"], "settlement_id": row["settlement_id"], "created_at": row["created_at"],
+        "authorization_id": row["authorization_id"],
     }
 
 

@@ -3,11 +3,13 @@ import json
 import re
 import sqlite3
 from datetime import datetime
+from decimal import Decimal
 
 from core import HANDLE_PATTERN, MAX_BALANCE, PASSWORD_ITERATIONS, TABLES, email_key, identifier, number_as_integer, valid_email, validation, write_transaction
+from holds import STATUSES, clock, expiry, lifetime, remaining
 
 
-NULLABLE = {("payments", "request_id"), ("payments", "settlement_id"), ("requests", "payment_id")}
+NULLABLE = {("payments", "request_id"), ("payments", "settlement_id"), ("payments", "authorization_id"), ("requests", "payment_id"), ("authorizations", "payment_id")}
 
 
 def export_state(db):
@@ -48,8 +50,15 @@ def validate_state(db, envelope):
     if not isinstance(state, dict) or number_as_integer(state.get("schema_version"), 1, 1) != 1:
         validation("Invalid state")
     tables = state.get("tables")
-    if not isinstance(tables, dict) or set(tables) != set(TABLES):
+    if not isinstance(tables, dict) or set(tables) not in (set(TABLES), set(TABLES) - {"authorizations"}):
         validation("Invalid state tables")
+    legacy = "authorizations" not in tables
+    tables = dict(tables)
+    if legacy:
+        tables["authorizations"] = []
+        tables["payments"] = [dict(row, authorization_id=None) if isinstance(row, dict) else row for row in tables.get("payments", [])] if isinstance(tables.get("payments"), list) else tables.get("payments")
+        if isinstance(tables.get("meta"), list):
+            tables["meta"] = list(tables["meta"]) + [{"key": "authorization_ttl_seconds", "value": "600"}]
     prepared = {}
     for table in TABLES:
         schema = db.execute(f"PRAGMA table_info({table})").fetchall()
@@ -79,7 +88,7 @@ def validate_state(db, envelope):
                 validation("Invalid record identity")
             if "seq" in normalized and normalized["seq"] < 1:
                 validation("Invalid sequence")
-            for field in ("created_at", "committed_at"):
+            for field in ("created_at", "committed_at", "expires_at"):
                 if field in normalized and not valid_time(normalized[field]):
                     validation("Invalid timestamp")
             prepared[table].append(normalized)
@@ -89,6 +98,10 @@ def validate_state(db, envelope):
         validation("Invalid metadata")
     if not meta["currency"] or meta["minor_units"] not in ("0", "2", "3") or not re.fullmatch(r"[0-9]+", meta["seed_total"]):
         validation("Invalid currency or total")
+    ttl = meta.get("authorization_ttl_seconds", "")
+    if not re.fullmatch(r"[0-9]+", ttl):
+        validation("Invalid authorization lifetime")
+    lifetime(Decimal(ttl))
     users = {row["id"]: row for row in prepared["users"]}
     if len(users) != len(prepared["users"]):
         validation("Duplicate user")
@@ -113,6 +126,9 @@ def validate_state(db, envelope):
         validation("Invalid operator")
     payments = {row["id"]: row for row in prepared["payments"]}
     requests = {row["id"]: row for row in prepared["requests"]}
+    authorizations = {row["id"]: row for row in prepared["authorizations"]}
+    if len(authorizations) != len(prepared["authorizations"]):
+        validation("Duplicate authorization")
     for row in prepared["payments"]:
         if row["from_user_id"] not in users or row["to_user_id"] not in users or row["from_user_id"] == row["to_user_id"]:
             validation("Invalid payment parties")
@@ -122,6 +138,38 @@ def validate_state(db, envelope):
             validation("Invalid payment request")
         if row["settlement_id"] is not None and not identifier(row["settlement_id"]):
             validation("Invalid settlement identity")
+        if row["authorization_id"] is not None and (row["authorization_id"] not in authorizations or row["request_id"] is not None or row["settlement_id"] is not None):
+            validation("Invalid payment authorization")
+    now = clock()
+    held = {}
+    capture_owners = {}
+    for row in authorizations.values():
+        if row["from_user_id"] not in users or row["to_user_id"] not in users or row["from_user_id"] == row["to_user_id"]:
+            validation("Invalid authorization parties")
+        if not 1 <= row["amount"] <= 1000000000 or not 0 <= row["captured_amount"] <= row["amount"] or len(row["note"]) > 200 or row["visibility"] not in ("public", "private") or row["status"] not in STATUSES:
+            validation("Invalid authorization")
+        expiry(row["expires_at"])
+        if row["status"] == "open" and row["captured_amount"] == row["amount"]:
+            validation("An open authorization must have a remainder")
+        payment_ids = stored_json(row["payment_ids_json"], list)
+        if any(not identifier(pid) or pid not in payments for pid in payment_ids) or len(set(payment_ids)) != len(payment_ids):
+            validation("Invalid capture records")
+        if row["payment_id"] != (payment_ids[len(payment_ids) - 1] if payment_ids else None):
+            validation("Invalid latest capture")
+        captured = 0
+        for pid in payment_ids:
+            payment = payments[pid]
+            if pid in capture_owners or payment["authorization_id"] != row["id"] or payment["from_user_id"] != row["from_user_id"] or payment["to_user_id"] != row["to_user_id"]:
+                validation("Invalid capture ownership")
+            capture_owners[pid] = row["id"]
+            captured += payment["amount"]
+        if captured > row["captured_amount"]:
+            validation("Invalid captured amount")
+        held[row["from_user_id"]] = held.get(row["from_user_id"], 0) + remaining(row, now)
+    if any(total > users[user_id]["balance"] for user_id, total in held.items()):
+        validation("Holds exceed wallet total")
+    if any(row["authorization_id"] is not None and row["id"] not in capture_owners for row in payments.values()):
+        validation("Unlisted authorization capture")
     for row in prepared["requests"]:
         if row["requester_id"] not in users or row["payer_id"] not in users or row["requester_id"] == row["payer_id"]:
             validation("Invalid request parties")
@@ -150,7 +198,7 @@ def validate_state(db, envelope):
     for row in prepared["idempotency"]:
         if row["user_id"] not in users or not 1 <= len(row["key"]) <= 255 or row["method"] != "POST":
             validation("Invalid idempotency record")
-        if row["path"] not in ("/payments", "/requests", "/splits", "/settlements") and not re.fullmatch(r"/requests/[^/]+/pay", row["path"]):
+        if row["path"] not in ("/payments", "/requests", "/splits", "/settlements", "/authorizations") and not re.fullmatch(r"/(?:requests/[^/]+/pay|authorizations/[^/]+/capture)", row["path"]):
             validation("Invalid idempotency path")
         stored_json(row["body_json"], list)
         stored_json(row["response_json"], dict)

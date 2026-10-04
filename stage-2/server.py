@@ -2,22 +2,29 @@ import json
 import os
 import re
 import socket
+from datetime import timedelta
+from pathlib import Path
 from decimal import Decimal, InvalidOperation
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 from core import (
-    APIError, HANDLE_PATTERN, MAX_BALANCE, amount, canonical_body, check_password,
+    APIError, HANDLE_PATTERN, MAX_BALANCE, WRITE_LOCK, amount, canonical_body, check_password,
     connection, derived_handle, email_key, get_meta, hash_password, initialize,
     malformed, new_id, new_token, note, payment_body, request_body, required_string,
     reset, timestamp, valid_email, validation, visibility, write_transaction,
 )
 from state import export_state, import_state
+from holds import STATUSES, authorization_body, capture_value, clock, effective_status, expiry, lifetime, wallet_funds
 
 
 MAX_BODY_BYTES = 8 * 1024 * 1024
 MAX_OFFSET = 2**63 - 1
 REQUEST_ACTION = re.compile(r"^/requests/([^/]+)/(pay|decline|cancel)$")
+AUTHORIZATION_ACTION = re.compile(r"^/authorizations/([^/]+)/(capture|void)$")
+UI_ROOT = Path(__file__).resolve().parent / "ui"
+PAGES = {"/": "index.html", "/requests": "requests.html", "/split": "split.html", "/signup": "signup.html", "/login": "login.html", "/authorizations": "authorizations.html"}
+ASSETS = {"/ui/pocketful-core.js": ("pocketful-core.js", "text/javascript; charset=utf-8"), "/ui/app.js": ("app.js", "text/javascript; charset=utf-8"), "/ui/theme.css": ("theme.css", "text/css; charset=utf-8")}
 ROUTES = {
     "/health": {"GET"},
     "/_test/reset": {"POST"},
@@ -31,6 +38,7 @@ ROUTES = {
     "/splits": {"POST"},
     "/activity": {"GET"},
     "/settlements": {"POST"},
+    "/authorizations": {"GET", "POST"},
 }
 
 
@@ -57,7 +65,27 @@ def json_body(data):
 
 class PocketfulHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
-    server_version = "Pocketful/1"
+    server_version = "Pocketful/2"
+
+    def serve_ui(self, path):
+        asset = ASSETS.get(path)
+        if asset is None and path in PAGES and "text/html" in self.headers.get("Accept", "").lower():
+            asset = (PAGES[path], "text/html; charset=utf-8")
+        if asset is None:
+            return False
+        filename, content_type = asset
+        try:
+            payload = (UI_ROOT / filename).read_bytes()
+        except FileNotFoundError:
+            raise APIError(404, "not_found")
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(payload)))
+        if self.close_connection:
+            self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(payload)
+        return True
 
     def log_message(self, format_string, *args):
         return
@@ -156,8 +184,10 @@ class PocketfulHandler(BaseHTTPRequestHandler):
     def route_info(self, path):
         if path in ROUTES:
             return ROUTES[path]
-        if REQUEST_ACTION.fullmatch(path):
+        if REQUEST_ACTION.fullmatch(path) or AUTHORIZATION_ACTION.fullmatch(path):
             return {"POST"}
+        if path in PAGES or path in ASSETS:
+            return {"GET"}
         return None
 
     def authenticate(self, db):
@@ -200,6 +230,7 @@ class PocketfulHandler(BaseHTTPRequestHandler):
                 result = json.loads(prior["response_json"])
                 status = 200
             else:
+                self.now = clock()
                 result = operation(db, user, body)
                 db.execute(
                     "INSERT INTO idempotency VALUES(?, ?, ?, ?, ?, ?)",
@@ -236,6 +267,8 @@ class PocketfulHandler(BaseHTTPRequestHandler):
                 raise APIError(404, "not_found")
             if self.command not in methods:
                 raise APIError(405, "method_not_allowed")
+            if self.command == "GET" and self.serve_ui(path):
+                return
             db = connection()
             try:
                 if path == "/health":
@@ -267,38 +300,58 @@ class PocketfulHandler(BaseHTTPRequestHandler):
                         self.login(db, body)
                     return
                 if self.command == "GET":
-                    db.execute("BEGIN")
+                    WRITE_LOCK.acquire()
                     try:
-                        user = self.authenticate(db)
-                        if path == "/me":
-                            meta = get_meta(db)
-                            result = {
-                                "user_id": user["id"], "display_name": user["display_name"],
-                                "handle": user["handle"], "balance": user["balance"],
-                                "currency": meta["currency"], "minor_units": int(meta["minor_units"]),
-                            }
-                        elif path == "/requests":
-                            result = self.list_requests(db, user)
-                        elif path == "/activity":
-                            result = self.activity(db, user)
-                        else:
-                            raise APIError(404, "not_found")
-                        db.execute("COMMIT")
-                    except BaseException:
-                        db.execute("ROLLBACK")
-                        raise
+                        db.execute("BEGIN")
+                        try:
+                            user = self.authenticate(db)
+                            self.now = clock()
+                            if path == "/me":
+                                meta = get_meta(db)
+                                result = {
+                                    "user_id": user["id"], "display_name": user["display_name"],
+                                    "handle": user["handle"], "balance": user["balance"],
+                                    "currency": meta["currency"], "minor_units": int(meta["minor_units"]),
+                                }
+                                result.update(wallet_funds(db, user["id"], user["balance"], self.now))
+                            elif path == "/requests":
+                                result = self.list_requests(db, user)
+                            elif path == "/activity":
+                                result = self.activity(db, user)
+                            elif path == "/authorizations":
+                                result = self.list_authorizations(db, user)
+                            else:
+                                raise APIError(404, "not_found")
+                            db.execute("COMMIT")
+                        except BaseException:
+                            db.execute("ROLLBACK")
+                            raise
+                    finally:
+                        WRITE_LOCK.release()
                     self.send_json(200, result)
                     return
                 user = self.authenticate(db)
                 if self.body_too_large:
                     validation("Body is too large")
                 action = REQUEST_ACTION.fullmatch(path)
+                authorization_action = AUTHORIZATION_ACTION.fullmatch(path)
+                if authorization_action and authorization_action.group(2) == "void":
+                    if raw_body:
+                        json_body(raw_body)
+                    self.void_authorization(db, user, authorization_action.group(1))
+                    return
                 if action and action.group(2) in ("decline", "cancel"):
                     if raw_body:
                         json_body(raw_body)
                     self.transition_request(db, user, action.group(1), action.group(2))
                     return
                 body = json_body(raw_body)
+                if path == "/authorizations":
+                    self.idempotent(db, user, path, body, self.create_authorization)
+                    return
+                if authorization_action and authorization_action.group(2) == "capture":
+                    self.idempotent(db, user, path, body, lambda db, user, body: self.capture_authorization(db, user, body, authorization_action.group(1)))
+                    return
                 if path == "/payments":
                     self.idempotent(db, user, path, body, self.create_payment)
                     return
@@ -378,7 +431,7 @@ class PocketfulHandler(BaseHTTPRequestHandler):
         target = db.execute("SELECT * FROM users WHERE handle = ?", (to_handle,)).fetchone()
         if target is None:
             raise APIError(404, "not_found")
-        if user["balance"] < value:
+        if wallet_funds(db, user["id"], user["balance"], self.now)["available"] < value:
             raise APIError(409, "insufficient_funds")
         if target["balance"] + value > MAX_BALANCE:
             validation("Balance limit exceeded")
@@ -420,7 +473,7 @@ class PocketfulHandler(BaseHTTPRequestHandler):
             raise APIError(403, "forbidden")
         if request["status"] != "pending":
             raise APIError(409, "request_not_pending")
-        if user["balance"] < request["amount"]:
+        if wallet_funds(db, user["id"], user["balance"], self.now)["available"] < request["amount"]:
             raise APIError(409, "insufficient_funds")
         receiver = db.execute("SELECT * FROM users WHERE id = ?", (request["requester_id"],)).fetchone()
         if receiver is None:
@@ -530,7 +583,7 @@ class PocketfulHandler(BaseHTTPRequestHandler):
         final_balances = {}
         for user_id, delta in net.items():
             balance = db.execute("SELECT balance FROM users WHERE id = ?", (user_id,)).fetchone()["balance"] + delta
-            if balance < 0:
+            if wallet_funds(db, user_id, balance, self.now)["available"] < 0:
                 raise APIError(409, "insufficient_funds")
             if balance > MAX_BALANCE:
                 validation("Balance limit exceeded")
@@ -549,6 +602,99 @@ class PocketfulHandler(BaseHTTPRequestHandler):
             )
             payments.append(payment_body(db, db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone()))
         return {"settlement_id": settlement_id, "committed_at": committed_at, "payments": payments}
+
+    def create_authorization(self, db, user, body):
+        to_handle = required_string(body, "to_handle")
+        value = amount(body)
+        hold_note = note(body)
+        hold_visibility = visibility(body)
+        if not HANDLE_PATTERN.fullmatch(to_handle):
+            validation("Invalid handle")
+        if to_handle == user["handle"]:
+            raise APIError(422, "self_payment")
+        target = db.execute("SELECT * FROM users WHERE handle = ?", (to_handle,)).fetchone()
+        if target is None:
+            raise APIError(404, "not_found")
+        if wallet_funds(db, user["id"], user["balance"], self.now)["available"] < value:
+            raise APIError(409, "insufficient_funds")
+        ttl = lifetime(Decimal(get_meta(db)["authorization_ttl_seconds"]), self.now)
+        created_at = self.now.isoformat()
+        expires_at = (self.now + timedelta(seconds=ttl)).isoformat()
+        authorization_id = new_id("a_")
+        db.execute(
+            "INSERT INTO authorizations(id, from_user_id, to_user_id, amount, captured_amount, note, visibility, status, expires_at, payment_id, payment_ids_json, created_at) VALUES(?, ?, ?, ?, 0, ?, ?, 'open', ?, NULL, '[]', ?)",
+            (authorization_id, user["id"], target["id"], value, hold_note, hold_visibility, expires_at, created_at),
+        )
+        return authorization_body(db, db.execute("SELECT * FROM authorizations WHERE id = ?", (authorization_id,)).fetchone(), self.now)
+
+    def capture_authorization(self, db, user, body, authorization_id):
+        requested = capture_value(body)
+        final = body.get("final", True)
+        if not isinstance(final, bool):
+            malformed("Final must be boolean")
+        hold = db.execute("SELECT * FROM authorizations WHERE id = ?", (authorization_id,)).fetchone()
+        if hold is None:
+            raise APIError(404, "not_found")
+        if hold["to_user_id"] != user["id"]:
+            raise APIError(403, "forbidden")
+        if hold["status"] != "open":
+            raise APIError(409, "authorization_not_open")
+        if expiry(hold["expires_at"]) <= self.now:
+            raise APIError(409, "authorization_expired")
+        remainder = hold["amount"] - hold["captured_amount"]
+        if requested is not None and requested > remainder:
+            raise APIError(422, "capture_exceeds_authorization")
+        value = remainder if requested is None else int(requested)
+        if user["balance"] + value > MAX_BALANCE:
+            validation("Balance limit exceeded")
+        payment_id = new_id("p_")
+        db.execute("UPDATE users SET balance = balance - ? WHERE id = ?", (value, hold["from_user_id"]))
+        db.execute("UPDATE users SET balance = balance + ? WHERE id = ?", (value, user["id"]))
+        db.execute(
+            "INSERT INTO payments(id, from_user_id, to_user_id, amount, note, visibility, request_id, settlement_id, authorization_id, created_at) VALUES(?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)",
+            (payment_id, hold["from_user_id"], user["id"], value, hold["note"], hold["visibility"], authorization_id, self.now.isoformat()),
+        )
+        payment_ids = json.loads(hold["payment_ids_json"])
+        payment_ids.append(payment_id)
+        status = "captured" if final or value == remainder else "open"
+        db.execute("UPDATE authorizations SET captured_amount = captured_amount + ?, status = ?, payment_id = ?, payment_ids_json = ? WHERE id = ?",
+                   (value, status, payment_id, json.dumps(payment_ids), authorization_id))
+        return payment_body(db, db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone())
+
+    def void_authorization(self, db, user, authorization_id):
+        with write_transaction(db):
+            user = self.current_user(db, user)
+            self.now = clock()
+            hold = db.execute("SELECT * FROM authorizations WHERE id = ?", (authorization_id,)).fetchone()
+            if hold is None:
+                raise APIError(404, "not_found")
+            if hold["from_user_id"] != user["id"]:
+                raise APIError(403, "forbidden")
+            if effective_status(hold, self.now) not in ("open", "voided"):
+                raise APIError(409, "authorization_not_open")
+            if hold["status"] == "open":
+                db.execute("UPDATE authorizations SET status = 'voided' WHERE id = ?", (authorization_id,))
+            result = authorization_body(db, db.execute("SELECT * FROM authorizations WHERE id = ?", (authorization_id,)).fetchone(), self.now)
+        self.send_json(200, result)
+
+    def list_authorizations(self, db, user):
+        query, limit, offset = self.pagination()
+        direction = query.get("direction", [None])[-1]
+        status = query.get("status", [None])[-1]
+        if direction not in (None, "incoming", "outgoing"):
+            validation("Invalid direction")
+        if status is not None and status not in STATUSES:
+            validation("Invalid status")
+        if direction == "incoming":
+            clause, parties = "to_user_id = ?", (user["id"],)
+        elif direction == "outgoing":
+            clause, parties = "from_user_id = ?", (user["id"],)
+        else:
+            clause, parties = "(from_user_id = ? OR to_user_id = ?)", (user["id"], user["id"])
+        rows = db.execute("SELECT * FROM authorizations WHERE " + clause + " ORDER BY created_at DESC, seq DESC", parties)
+        visible = [row for row in rows if status is None or effective_status(row, self.now) == status]
+        page = visible[offset:offset + limit]
+        return {"authorizations": [authorization_body(db, row, self.now) for row in page], "has_more": len(visible) > offset + limit}
 
     def list_requests(self, db, user):
         query, limit, offset = self.pagination()
