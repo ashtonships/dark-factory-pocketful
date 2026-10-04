@@ -5,9 +5,10 @@ import sqlite3
 from datetime import datetime
 from decimal import Decimal
 
-from core import HANDLE_PATTERN, MAX_BALANCE, PASSWORD_ITERATIONS, TABLES, email_key, get_meta, identifier, number_as_integer, retain_clock, valid_email, validation, write_transaction
+from core import APIError, HANDLE_PATTERN, MAX_BALANCE, PASSWORD_ITERATIONS, TABLES, email_key, get_meta, identifier, number_as_integer, retain_clock, valid_email, validation, write_transaction
 from holds import STATUSES, clock, expiry, lifetime, record_expiries, remaining
 from history_store import HISTORY_TABLES, upgrade_tables, validate as validate_history
+from history import instant, parse_instant
 
 
 NULLABLE = {("payments", "request_id"), ("payments", "settlement_id"), ("payments", "authorization_id"), ("requests", "payment_id"), ("authorizations", "payment_id"), ("authorization_events", "payment_id")}
@@ -22,9 +23,9 @@ def export_state(db):
 
 def valid_time(value):
     try:
-        parsed = datetime.fromisoformat(value)
-        return parsed.tzinfo is not None and parsed.utcoffset() is not None
-    except (ValueError, TypeError):
+        parse_instant(value)
+        return True
+    except APIError:
         return False
 
 
@@ -179,7 +180,7 @@ def validate_state(db, envelope, now):
         if hold is None or event["kind"] not in ("capture", "void", "expiry") or not 0 <= event["remaining_amount"] <= hold["amount"]:
             validation("Invalid authorization event")
         event_time = expiry(event["event_at"])
-        if (event["kind"] != "expiry" and event_time < expiry(hold["created_at"])) or event_time > now or event["authorization_id"] in seen_closures:
+        if (event["kind"] != "expiry" and event_time < expiry(hold["created_at"])) or event_time > instant(now) or event["authorization_id"] in seen_closures:
             validation("Invalid authorization event time")
         if event_time < previous_times.get(hold["id"], event_time):
             validation("Unordered authorization events")
@@ -261,6 +262,10 @@ def import_state(db, envelope):
             water = db.execute("SELECT value FROM meta WHERE key='clock_high_water'").fetchone()
             if water is None:
                 validation("Missing clock high-water mark")
-            retain_clock(datetime.fromisoformat(water["value"]))
+            try:
+                retained = datetime.fromisoformat(water["value"])
+            except (ValueError,OverflowError):
+                validation("Invalid server clock high-water mark")
+            retain_clock(retained)
         except sqlite3.IntegrityError:
             validation("Duplicate or invalid state record")
