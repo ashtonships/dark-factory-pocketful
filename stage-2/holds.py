@@ -9,6 +9,24 @@ from core import amount, fixture_record_id, get_meta, identifier, note, number_a
 STATUSES = ("open", "captured", "voided", "expired")
 
 
+def record_event(db, authorization_id, kind, event_at, remaining_amount=0, payment_id=None):
+    db.execute(
+        "INSERT INTO authorization_events(authorization_id, kind, event_at, payment_id, remaining_amount) VALUES(?, ?, ?, ?, ?)",
+        (authorization_id, kind, event_at, payment_id, remaining_amount),
+    )
+
+
+def record_expiries(db, now):
+    # The clock event occurs at its known deadline, not at its later observation.
+    rows = db.execute("SELECT * FROM authorizations WHERE status IN ('open', 'expired')").fetchall()
+    for row in rows:
+        if expiry(row["expires_at"]) <= now and db.execute(
+            "SELECT 1 FROM authorization_events WHERE authorization_id = ? AND kind = 'expiry'",
+            (row["id"],),
+        ).fetchone() is None:
+            record_event(db, row["id"], "expiry", row["expires_at"])
+
+
 def clock():
     return datetime.now(timezone.utc)
 

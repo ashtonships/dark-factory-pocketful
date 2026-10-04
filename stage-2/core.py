@@ -7,7 +7,7 @@ import secrets
 import sqlite3
 import threading
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -17,7 +17,7 @@ WRITE_LOCK = threading.RLock()
 HANDLE_PATTERN = re.compile(r"^[a-z0-9_]{1,20}$")
 MAX_BALANCE = 2**53
 PASSWORD_ITERATIONS = 5000
-TABLES = ("idempotency", "tokens", "authorizations", "payments", "requests", "splits", "settlements", "operators", "users", "meta")
+TABLES = ("idempotency", "tokens", "authorization_events", "authorizations", "payments", "requests", "splits", "settlements", "operators", "users", "meta")
 
 
 class APIError(Exception):
@@ -81,12 +81,13 @@ def connection():
     db = sqlite3.connect(DATABASE_PATH, timeout=5, isolation_level=None)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA busy_timeout = 5000")
+    db.execute("PRAGMA synchronous = NORMAL")
     return db
 
 
 @contextmanager
-def write_transaction(db):
-    with WRITE_LOCK:
+def write_transaction(db, serialize=True):
+    with WRITE_LOCK if serialize else nullcontext():
         db.execute("BEGIN IMMEDIATE")
         try:
             yield
@@ -139,6 +140,12 @@ def initialize():
                 created_at TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS authorizations_parties ON authorizations(from_user_id, to_user_id);
+            CREATE TABLE IF NOT EXISTS authorization_events (
+                seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                authorization_id TEXT NOT NULL, kind TEXT NOT NULL, event_at TEXT NOT NULL,
+                payment_id TEXT, remaining_amount INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS authorization_event_order ON authorization_events(authorization_id, seq);
             CREATE TABLE IF NOT EXISTS splits (
                 seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
                 creator_id TEXT NOT NULL, amount INTEGER NOT NULL, note TEXT NOT NULL,

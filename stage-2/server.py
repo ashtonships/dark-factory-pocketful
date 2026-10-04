@@ -15,7 +15,7 @@ from core import (
     reset, timestamp, valid_email, validation, visibility, write_transaction,
 )
 from state import export_state, import_state
-from holds import STATUSES, authorization_body, capture_value, clock, effective_status, expiry, lifetime, wallet_funds
+from holds import STATUSES, authorization_body, capture_value, clock, effective_status, expiry, lifetime, record_event, wallet_funds
 
 
 MAX_BODY_BYTES = 8 * 1024 * 1024
@@ -412,7 +412,9 @@ class PocketfulHandler(BaseHTTPRequestHandler):
         if user is None or not check_password(password, user["password_salt"], user["password_hash"]):
             raise APIError(401, "unauthenticated")
         token = new_token()
-        with write_transaction(db):
+        # SQLite excludes reset/import writers; recheck credentials before insertion.
+        # No process lock is needed for this token-only transaction.
+        with write_transaction(db, serialize=False):
             current = db.execute("SELECT 1 FROM users WHERE id = ? AND password_hash = ?", (user["id"], user["password_hash"])).fetchone()
             if current is None:
                 raise APIError(401, "unauthenticated")
@@ -659,6 +661,7 @@ class PocketfulHandler(BaseHTTPRequestHandler):
         status = "captured" if final or value == remainder else "open"
         db.execute("UPDATE authorizations SET captured_amount = captured_amount + ?, status = ?, payment_id = ?, payment_ids_json = ? WHERE id = ?",
                    (value, status, payment_id, json.dumps(payment_ids), authorization_id))
+        record_event(db, authorization_id, "capture", self.now.isoformat(), remainder - value if status == "open" else 0, payment_id)
         return payment_body(db, db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone())
 
     def void_authorization(self, db, user, authorization_id):
@@ -674,6 +677,7 @@ class PocketfulHandler(BaseHTTPRequestHandler):
                 raise APIError(409, "authorization_not_open")
             if hold["status"] == "open":
                 db.execute("UPDATE authorizations SET status = 'voided' WHERE id = ?", (authorization_id,))
+                record_event(db, authorization_id, "void", self.now.isoformat())
             result = authorization_body(db, db.execute("SELECT * FROM authorizations WHERE id = ?", (authorization_id,)).fetchone(), self.now)
         self.send_json(200, result)
 
