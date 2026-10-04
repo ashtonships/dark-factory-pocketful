@@ -4,8 +4,8 @@ Updated by Coordinator. Ledger: `ledger/pocketful.md`. Time box: final report by
 
 | Stage | State | Accepted revision | Gate receipt |
 |---|---|---|---|
-| 1 | GATE RED #1 at ca640ff (test-fitting tokens '-1', '19'); rework on 6bbce6d with Builder; in progress (ledger 273/273 sentences, 251 entries + 22 waivers + 9001–9003) | — | — |
-| 2 | ledger written (222/222 sentences, 211 entries + 11 waivers); W-5/W-6 pre-work in review | — | — |
+| 1 | ACCEPTED, FROZEN: GATE GREEN #4 at 57cc82e (stage-1 tree 8f19cbfb6d7e), harness s1 146/147 (1 reset ReadTimeout at load ~290), Checker 234/234; main ef11f77 + receipt fa85767; Sat 22:10 (ledger 273/273 sentences, 251 entries + 22 waivers + 9001–9003) | — | — |
+| 2 | in progress: W-8 server on builder (cd4efc0 copy = frozen tree), W-7 screens to the design pick (ledger/design-pick.md: Home C, Requests A, Split A, Auth C, Holds A) | — | — |
 | 3 | not started | — | — |
 | 4 | not started | — | — |
 
@@ -44,3 +44,4 @@ Updated by Coordinator. Ledger: `ledger/pocketful.md`. Time box: final report by
 - W-8 handed back at 80c511a (chain cd4efc0 copy = stage-1 tree 8f19cbfb6d7e, f60ba6f server, 80c511a typed fields). 80c511a made malformed settlement batches 400, contradicting §11/D-9 (422); Builder asked to git-revert it. PF-A5 (9018) fixed in f60ba6f.
 - W-7 part 1 (Builder-Two): merge builder, move ui-core pages into stage-2/ui/, drill against the real stage-2 container. Part 2, the restyle, follows the design pick.
 - Time check: stage 1 still not accepted at 21:30 because of host load. Cut rule: stage 3 not accepted by Sun 04:00 → no stage 4; not accepted by 12:00 → entry is stages 1-2.
+- Stage 1 accepted 22:10. Adversary dispatched to attack 57cc82e: retained suite, a reset-latency probe after a 50-way burst, seeded faults (seed 1). W-7 part 2 (restyle to the pick) sent to Builder-Two.
