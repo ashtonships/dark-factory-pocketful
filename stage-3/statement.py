@@ -200,31 +200,42 @@ def export_snapshots(db):
     return [_exported(value["token"], value["owner"], value["head"], value["entries"]) for value in sorted(live, key=lambda value: value["token"])]
 
 
+def _record(snapshot, generation):
+    result = dict(snapshot["result"])
+    entries = result.pop("entries")
+    return {"owner": snapshot["user_id"], "generation": generation, "head": result, "entries": entries, "token": snapshot["token"]}
+
+
 def validate_snapshots(items):
-    """The export's `snapshots` value (None: no snapshots), checked and normalized.
-    Raises 422 validation_failed on any bad shape, without touching the store."""
+    """The export's `snapshots` value (None: no snapshots) checked and normalized into
+    export-shaped dicts. Raises 422 validation_failed on any bad shape or on a token that
+    already pages a different frozen result here; it never
+    changes the store."""
     if items is None:
         return []
     if not isinstance(items, list):
         validation("Invalid snapshots")
-    seen = set()
-    valid = []
+    valid = {}
     for item in items:
         token, user_id, head, entries = _imported(item)
-        if token in seen:
-            validation("Duplicate snapshot token")
-        seen.add(token)
-        valid.append((token, user_id, head, entries))
-    return valid
+        snapshot = {"token": token, "user_id": user_id, "result": dict(head, entries=entries)}
+        if valid.get(token, snapshot) != snapshot:
+            validation("Conflicting snapshot token")
+        valid[token] = snapshot
+    with _snapshots_lock:
+        live = {token: _exported(token, value["owner"], value["head"], value["entries"]) for token, value in _snapshots.items()}
+    for token, snapshot in valid.items():
+        if live.get(token, snapshot) != snapshot:
+            validation("Conflicting snapshot token")
+    return list(valid.values())
 
 
 def import_snapshots(db, items):
-    """Restore exported snapshots, bound to this service's current generation.
-    Existing tokens stay until reset; an imported token replaces one with the same
-    value. Everything is validated before the store changes.
-    Stage-3 keeps them in process memory: call this after the import commits."""
+    """Merge exported snapshots into the store, bound to this service's current
+    generation. Local tokens stay until reset, an identical token replays, and a
+    token that would change a frozen result is 422. Stage-3 keeps them in process
+    memory: validate inside the import, then call this after the import commits."""
     generation = _generation(db)
-    restored = {token: {"owner": user_id, "generation": generation, "head": head, "entries": entries, "token": token}
-                for token, user_id, head, entries in validate_snapshots(items)}
+    restored = {snapshot["token"]: _record(snapshot, generation) for snapshot in validate_snapshots(items)}
     with _snapshots_lock:
         _snapshots.update(restored)
