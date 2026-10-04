@@ -14,7 +14,7 @@ import threading
 from urllib.parse import parse_qs, urlsplit
 
 import history
-from core import APIError, get_meta, payment_body, validation
+from core import APIError, get_meta, validation
 
 TEMPORAL = ("as_of", "known_at")
 WINDOW = ("from", "to", "known_at")
@@ -34,16 +34,18 @@ def _last(values):
 
 
 def _instant(query, name):
-    """(original text, UTC microseconds) for a supplied instant, (None, None) if absent.
+    """(original text, exact UTC key) for a supplied instant, (None, None) if absent.
     A supplied value that is not an RFC 3339 instant with an offset, including an
-    empty one, is 422 (ledger 2014, 2076)."""
+    empty one, is 422 (ledger 2014, 2076); history.parse_instant raises it."""
     if name not in query:
         return None, None
     text = _last(query[name])
-    try:
-        return text, history.instant_us(text)
-    except (ValueError, OverflowError, TypeError):
-        validation("Invalid " + name)
+    return text, history.parse_instant(text)
+
+
+def _generation(db):
+    """Changes only at reset; import keeps the local value (ledger 2094)."""
+    return get_meta(db)["reset_generation"]
 
 
 def temporal(path):
@@ -57,11 +59,11 @@ def me(handler, db, user):
     query = _query(handler.path)
     as_of_text, as_of = _instant(query, "as_of")
     known_text, known = _instant(query, "known_at")
-    now = history.now_us(handler.now)
+    now = history.instant(handler.now)
     at = now if as_of is None else as_of
     known = now if known is None else known
-    total = history.total_at(db, user["id"], at, known, True)
-    held = history.held_at(db, user["id"], at, known)
+    total = history.total(db, user["id"], at, known)
+    held = history.held(db, user["id"], at, known)
     meta = get_meta(db)
     result = {
         "user_id": user["id"], "display_name": user["display_name"], "handle": user["handle"],
@@ -87,7 +89,7 @@ def statement(handler, db, user):
 def _lookup(db, user, token):
     with _snapshots_lock:
         snapshot = _snapshots.get(token)
-    if snapshot is None or snapshot["owner"] != user["id"] or snapshot["generation"] != history.reset_generation(db):
+    if snapshot is None or snapshot["owner"] != user["id"] or snapshot["generation"] != _generation(db):
         raise APIError(404, "not_found")
     return snapshot
 
@@ -97,30 +99,19 @@ def _take(handler, db, user, query):
     from_text, start = _instant(query, "from")
     to_text, end = _instant(query, "to")
     known_text, known = _instant(query, "known_at")
-    now = history.now_us(handler.now)
+    now = history.instant(handler.now)
     end = now if end is None else end           # the default `to` is frozen with the snapshot
     known = now if known is None else known
     if start is not None and start > end:
         validation("from must not be later than to")
     user_id = user["id"]
-    opening = history.opening(db, user_id) if start is None else history.total_at(db, user_id, start, known, False)
-    running = opening
-    entries = []
-    for move in history.selected_movements(db, user_id, known):
-        if move["effective_us"] >= end or (start is not None and move["effective_us"] < start):
-            continue
-        running += move["delta"]
-        payment = payment_body(db, move["row"])
-        payment["amount"] = move["amount"]
-        entries.append({
-            "payment": payment, "delta": move["delta"], "balance_after": running,
-            "revision": move["revision"], "effective_at": move["effective_at"], "recorded_at": move["recorded_at"],
-        })
-    head = {"opening_balance": opening, "closing_balance": running}
+    opening = history.opening(db, user_id) if start is None else history.total(db, user_id, start, known, inclusive=False)
+    entries = history.statement_rows(db, user_id, start, end, known)
+    head = {"opening_balance": opening, "closing_balance": entries[-1]["balance_after"] if entries else opening}
     for name, text in (("from", from_text), ("to", to_text), ("known_at", known_text)):
         if text is not None:
             head[name] = text
-    generation = history.reset_generation(db)
+    generation = _generation(db)
     token = secrets.token_urlsafe()
     snapshot = {"owner": user_id, "generation": generation, "head": head, "entries": entries, "token": token}
     with _snapshots_lock:
