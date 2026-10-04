@@ -11,7 +11,7 @@ from history_store import HISTORY_TABLES, upgrade_tables, validate as validate_h
 from history import instant, parse_instant
 
 
-NULLABLE = {("payments", "request_id"), ("payments", "settlement_id"), ("payments", "authorization_id"), ("requests", "payment_id"), ("authorizations", "payment_id"), ("authorization_events", "payment_id")}
+NULLABLE = {("payments", "request_id"), ("payments", "settlement_id"), ("payments", "authorization_id"), ("payments", "refund_of"), ("payment_revisions", "correction_batch_id"), ("requests", "payment_id"), ("authorizations", "payment_id"), ("authorization_events", "payment_id")}
 
 
 def export_state(db):
@@ -71,6 +71,9 @@ def validate_state(db, envelope, now):
             validation("Invalid table rows")
         prepared[table] = []
         for row in rows:
+            if isinstance(row,dict) and table in ("payments","payment_revisions"):
+                row = dict(row)
+                row.setdefault("refund_of" if table == "payments" else "correction_batch_id",None)
             if not isinstance(row, dict) or set(row) != set(columns):
                 validation("Invalid row columns")
             normalized = {}
@@ -234,7 +237,7 @@ def validate_state(db, envelope, now):
     for row in prepared["idempotency"]:
         if row["user_id"] not in users or not 1 <= len(row["key"]) <= 255 or row["method"] != "POST":
             validation("Invalid idempotency record")
-        if row["path"] not in ("/payments", "/requests", "/splits", "/settlements", "/authorizations") and not re.fullmatch(r"/(?:requests/[^/]+/pay|authorizations/[^/]+/capture|payments/[^/]+/corrections)", row["path"]):
+        if row["path"] not in ("/payments", "/requests", "/splits", "/settlements", "/authorizations", "/correction-batches") and not re.fullmatch(r"/(?:requests/[^/]+/pay|authorizations/[^/]+/capture|payments/[^/]+/(?:corrections|refunds))", row["path"]):
             validation("Invalid idempotency path")
         stored_json(row["body_json"], list)
         stored_json(row["response_json"], dict)

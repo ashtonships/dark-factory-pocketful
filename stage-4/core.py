@@ -139,7 +139,7 @@ def initialize():
                 from_user_id TEXT NOT NULL, to_user_id TEXT NOT NULL,
                 amount INTEGER NOT NULL, note TEXT NOT NULL, visibility TEXT NOT NULL,
                 request_id TEXT, settlement_id TEXT, created_at TEXT NOT NULL,
-                authorization_id TEXT
+                authorization_id TEXT, refund_of TEXT
             );
             CREATE INDEX IF NOT EXISTS payments_feed ON payments(created_at DESC, seq DESC);
             CREATE TABLE IF NOT EXISTS requests (
@@ -170,6 +170,7 @@ def initialize():
             CREATE TABLE IF NOT EXISTS payment_revisions (
                 payment_id TEXT NOT NULL, revision INTEGER NOT NULL, amount INTEGER NOT NULL,
                 effective_at TEXT NOT NULL, recorded_at TEXT NOT NULL, reason TEXT NOT NULL,
+                correction_batch_id TEXT,
                 PRIMARY KEY(payment_id, revision)
             );
             CREATE INDEX IF NOT EXISTS revisions_known ON payment_revisions(payment_id, recorded_at);
@@ -410,7 +411,7 @@ def payment_body(db, row):
         "to_user_id": row["to_user_id"], "to_handle": target["handle"], "amount": row["amount"],
         "currency": get_meta(db)["currency"], "note": row["note"], "visibility": row["visibility"],
         "request_id": row["request_id"], "settlement_id": row["settlement_id"], "created_at": row["created_at"],
-        "authorization_id": row["authorization_id"],
+        "authorization_id": row["authorization_id"], "refund_of": row["refund_of"],
     }
 
 
