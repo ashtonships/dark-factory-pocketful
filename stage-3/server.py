@@ -15,6 +15,7 @@ from core import (
     reset, timestamp, valid_email, validation, visibility, write_transaction,
 )
 from state import export_state, import_state
+from history_store import baseline, original
 from holds import STATUSES, authorization_body, capture_value, clock, effective_status, expiry, lifetime, record_event, wallet_funds
 
 
@@ -232,6 +233,7 @@ class PocketfulHandler(BaseHTTPRequestHandler):
             else:
                 self.now = clock()
                 result = operation(db, user, body)
+                db.execute("UPDATE meta SET value=? WHERE key='clock_high_water'", (self.now.isoformat(),))
                 db.execute(
                     "INSERT INTO idempotency VALUES(?, ?, ?, ?, ?, ?)",
                     (user["id"], key, self.command, path, body_json, json.dumps(result, ensure_ascii=False, separators=(",", ":"))),
@@ -401,6 +403,7 @@ class PocketfulHandler(BaseHTTPRequestHandler):
             token = new_token()
             db.execute("INSERT INTO users VALUES(?, ?, ?, ?, ?, 0, ?, ?)", (user_id, email, email_key(email), display_name, handle, salt, digest))
             db.execute("INSERT INTO tokens VALUES(?, ?)", (token, user_id))
+            db.execute("INSERT INTO wallet_openings VALUES(?,0)", (user_id,))
         self.send_json(201, {"user_id": user_id, "display_name": display_name, "token": token})
 
     def login(self, db, body):
@@ -442,8 +445,9 @@ class PocketfulHandler(BaseHTTPRequestHandler):
         payment_id = new_id("p_")
         db.execute(
             "INSERT INTO payments(id, from_user_id, to_user_id, amount, note, visibility, request_id, settlement_id, created_at) VALUES(?, ?, ?, ?, ?, ?, NULL, NULL, ?)",
-            (payment_id, user["id"], target["id"], value, payment_note, payment_visibility, timestamp()),
+            (payment_id, user["id"], target["id"], value, payment_note, payment_visibility, self.now.isoformat()),
         )
+        original(db,payment_id)
         row = db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone()
         return payment_body(db, row)
 
@@ -461,7 +465,7 @@ class PocketfulHandler(BaseHTTPRequestHandler):
         request_id = new_id("rq_")
         db.execute(
             "INSERT INTO requests(id, requester_id, payer_id, amount, note, status, payment_id, created_at) VALUES(?, ?, ?, ?, ?, 'pending', NULL, ?)",
-            (request_id, user["id"], payer["id"], value, request_note, timestamp()),
+            (request_id, user["id"], payer["id"], value, request_note, self.now.isoformat()),
         )
         row = db.execute("SELECT * FROM requests WHERE id = ?", (request_id,)).fetchone()
         return request_body(db, row)
@@ -487,8 +491,9 @@ class PocketfulHandler(BaseHTTPRequestHandler):
         payment_id = new_id("p_")
         db.execute(
             "INSERT INTO payments(id, from_user_id, to_user_id, amount, note, visibility, request_id, settlement_id, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, NULL, ?)",
-            (payment_id, user["id"], receiver["id"], request["amount"], request["note"], payment_visibility, request_id, timestamp()),
+            (payment_id, user["id"], receiver["id"], request["amount"], request["note"], payment_visibility, request_id, self.now.isoformat()),
         )
+        original(db,payment_id)
         db.execute("UPDATE requests SET status = 'paid', payment_id = ? WHERE id = ?", (payment_id, request_id))
         row = db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone()
         return payment_body(db, row)
@@ -532,7 +537,7 @@ class PocketfulHandler(BaseHTTPRequestHandler):
                 raise APIError(404, "not_found")
             targets.append(target)
         quotient, remainder = divmod(value, len(participants))
-        created_at = timestamp()
+        created_at = self.now.isoformat()
         shares = []
         requests = []
         for index, target in enumerate(targets):
@@ -593,7 +598,7 @@ class PocketfulHandler(BaseHTTPRequestHandler):
         # Assign net balances directly: no transient overdrafts even for cycles.
         db.executemany("UPDATE users SET balance = ? WHERE id = ?", ((balance, user_id) for user_id, balance in final_balances.items()))
         settlement_id = new_id("st_")
-        committed_at = timestamp()
+        committed_at = self.now.isoformat()
         db.execute("INSERT INTO settlements(id, operator_id, committed_at) VALUES(?, ?, ?)", (settlement_id, user["id"], committed_at))
         payments = []
         for source_id, target_id, value, transfer_note, transfer_visibility in prepared:
@@ -602,6 +607,7 @@ class PocketfulHandler(BaseHTTPRequestHandler):
                 "INSERT INTO payments(id, from_user_id, to_user_id, amount, note, visibility, request_id, settlement_id, created_at) VALUES(?, ?, ?, ?, ?, ?, NULL, ?, ?)",
                 (payment_id, source_id, target_id, value, transfer_note, transfer_visibility, settlement_id, committed_at),
             )
+            original(db,payment_id)
             payments.append(payment_body(db, db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone()))
         return {"settlement_id": settlement_id, "committed_at": committed_at, "payments": payments}
 
@@ -627,6 +633,7 @@ class PocketfulHandler(BaseHTTPRequestHandler):
             "INSERT INTO authorizations(id, from_user_id, to_user_id, amount, captured_amount, note, visibility, status, expires_at, payment_id, payment_ids_json, created_at) VALUES(?, ?, ?, ?, 0, ?, ?, 'open', ?, NULL, '[]', ?)",
             (authorization_id, user["id"], target["id"], value, hold_note, hold_visibility, expires_at, created_at),
         )
+        baseline(db,authorization_id)
         return authorization_body(db, db.execute("SELECT * FROM authorizations WHERE id = ?", (authorization_id,)).fetchone(), self.now)
 
     def capture_authorization(self, db, user, body, authorization_id):
@@ -656,6 +663,7 @@ class PocketfulHandler(BaseHTTPRequestHandler):
             "INSERT INTO payments(id, from_user_id, to_user_id, amount, note, visibility, request_id, settlement_id, authorization_id, created_at) VALUES(?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)",
             (payment_id, hold["from_user_id"], user["id"], value, hold["note"], hold["visibility"], authorization_id, self.now.isoformat()),
         )
+        original(db,payment_id)
         payment_ids = json.loads(hold["payment_ids_json"])
         payment_ids.append(payment_id)
         status = "captured" if final or value == remainder else "open"

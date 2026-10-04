@@ -5,8 +5,9 @@ import sqlite3
 from datetime import datetime
 from decimal import Decimal
 
-from core import HANDLE_PATTERN, MAX_BALANCE, PASSWORD_ITERATIONS, TABLES, email_key, identifier, number_as_integer, valid_email, validation, write_transaction
+from core import HANDLE_PATTERN, MAX_BALANCE, PASSWORD_ITERATIONS, TABLES, email_key, get_meta, identifier, number_as_integer, retain_clock, valid_email, validation, write_transaction
 from holds import STATUSES, clock, expiry, lifetime, record_expiries, remaining
+from history_store import HISTORY_TABLES, upgrade_tables, validate as validate_history
 
 
 NULLABLE = {("payments", "request_id"), ("payments", "settlement_id"), ("payments", "authorization_id"), ("requests", "payment_id"), ("authorizations", "payment_id"), ("authorization_events", "payment_id")}
@@ -39,18 +40,22 @@ def stored_json(value, expected_type):
         validation("Invalid stored JSON")
 
 
-def validate_state(db, envelope):
+def validate_state(db, envelope, now):
     if envelope.get("track") != "pocketful" or number_as_integer(envelope.get("format_version"), 1, 1) != 1:
         validation("Unsupported export format")
     state = envelope.get("state")
     if not isinstance(state, dict) or number_as_integer(state.get("schema_version"), 1, 1) != 1:
         validation("Invalid state")
     tables = state.get("tables")
-    if not isinstance(tables, dict) or set(tables) not in (set(TABLES), set(TABLES) - {"authorization_events"}, set(TABLES) - {"authorization_events", "authorizations"}):
+    prior = set(TABLES) - HISTORY_TABLES
+    if not isinstance(tables, dict) or set(tables) not in (set(TABLES), prior, prior - {"authorization_events"}, prior - {"authorization_events", "authorizations"}):
         validation("Invalid state tables")
+    missing_history = not HISTORY_TABLES <= set(tables)
     legacy = "authorizations" not in tables
     tables = dict(tables)
     tables.setdefault("authorization_events", [])
+    for table in HISTORY_TABLES:
+        tables.setdefault(table, [])
     if legacy:
         tables["authorizations"] = []
         tables["payments"] = [dict(row, authorization_id=None) if isinstance(row, dict) else row for row in tables.get("payments", [])] if isinstance(tables.get("payments"), list) else tables.get("payments")
@@ -85,7 +90,7 @@ def validate_state(db, envelope):
                 validation("Invalid record identity")
             if "seq" in normalized and normalized["seq"] < 1:
                 validation("Invalid sequence")
-            for field in ("created_at", "committed_at", "expires_at", "event_at"):
+            for field in ("created_at", "committed_at", "expires_at", "event_at", "effective_at", "recorded_at", "baseline_at"):
                 if field in normalized and not valid_time(normalized[field]):
                     validation("Invalid timestamp")
             prepared[table].append(normalized)
@@ -98,7 +103,7 @@ def validate_state(db, envelope):
     ttl = meta.get("authorization_ttl_seconds", "")
     if not re.fullmatch(r"[0-9]+", ttl):
         validation("Invalid authorization lifetime")
-    lifetime(Decimal(ttl))
+    lifetime(Decimal(ttl),now)
     users = {row["id"]: row for row in prepared["users"]}
     if len(users) != len(prepared["users"]):
         validation("Duplicate user")
@@ -137,7 +142,6 @@ def validate_state(db, envelope):
             validation("Invalid settlement identity")
         if row["authorization_id"] is not None and (row["authorization_id"] not in authorizations or row["request_id"] is not None or row["settlement_id"] is not None):
             validation("Invalid payment authorization")
-    now = clock()
     held = {}
     capture_owners = {}
     for row in authorizations.values():
@@ -229,17 +233,22 @@ def validate_state(db, envelope):
     for row in prepared["idempotency"]:
         if row["user_id"] not in users or not 1 <= len(row["key"]) <= 255 or row["method"] != "POST":
             validation("Invalid idempotency record")
-        if row["path"] not in ("/payments", "/requests", "/splits", "/settlements", "/authorizations") and not re.fullmatch(r"/(?:requests/[^/]+/pay|authorizations/[^/]+/capture)", row["path"]):
+        if row["path"] not in ("/payments", "/requests", "/splits", "/settlements", "/authorizations") and not re.fullmatch(r"/(?:requests/[^/]+/pay|authorizations/[^/]+/capture|payments/[^/]+/corrections)", row["path"]):
             validation("Invalid idempotency path")
         stored_json(row["body_json"], list)
         stored_json(row["response_json"], dict)
-    return prepared
+    return upgrade_tables(prepared,now,force=missing_history)
 
 
 def import_state(db, envelope):
-    prepared = validate_state(db, envelope)
+    now = clock()
+    prepared = validate_state(db, envelope,now)
     with write_transaction(db):
         try:
+            generation = get_meta(db)["reset_generation"]
+            for row in prepared["meta"]:
+                if row["key"] == "reset_generation":
+                    row["value"] = generation
             for table in TABLES:
                 db.execute(f"DELETE FROM {table}")
             db.execute("DELETE FROM sqlite_sequence")
@@ -248,5 +257,10 @@ def import_state(db, envelope):
                     columns = ",".join(row)
                     placeholders = ",".join("?" for _ in row)
                     db.execute(f"INSERT INTO {table}({columns}) VALUES({placeholders})", tuple(row.values()))
+            validate_history(db,now)
+            water = db.execute("SELECT value FROM meta WHERE key='clock_high_water'").fetchone()
+            if water is None:
+                validation("Missing clock high-water mark")
+            retain_clock(datetime.fromisoformat(water["value"]))
         except sqlite3.IntegrityError:
             validation("Duplicate or invalid state record")

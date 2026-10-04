@@ -3,7 +3,7 @@ import json
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from core import amount, fixture_record_id, get_meta, identifier, note, number_as_integer, required_string, validation, visibility
+from core import amount, fixture_record_id, get_meta, identifier, note, number_as_integer, required_string, server_clock, validation, visibility
 
 
 STATUSES = ("open", "captured", "voided", "expired")
@@ -28,7 +28,7 @@ def record_expiries(db, now):
 
 
 def clock():
-    return datetime.now(timezone.utc)
+    return server_clock()
 
 
 def expiry(value):
@@ -93,8 +93,8 @@ def capture_value(body):
     return value
 
 
-def prepare_fixture_authorizations(fixture, users, payments):
-    now = clock()
+def prepare_fixture_authorizations(fixture, users, payments, now=None):
+    now = now or clock()
     ttl = lifetime(fixture.get("authorization_ttl_seconds", 600), now)
     records = fixture.get("authorizations", [])
     if not isinstance(records, list):

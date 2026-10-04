@@ -8,7 +8,7 @@ import sqlite3
 import threading
 import uuid
 from contextlib import contextmanager, nullcontext
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 
@@ -17,7 +17,8 @@ WRITE_LOCK = threading.RLock()
 HANDLE_PATTERN = re.compile(r"^[a-z0-9_]{1,20}$")
 MAX_BALANCE = 2**53
 PASSWORD_ITERATIONS = 5000
-TABLES = ("idempotency", "tokens", "authorization_events", "authorizations", "payments", "requests", "splits", "settlements", "operators", "users", "meta")
+TABLES = ("idempotency", "tokens", "wallet_openings", "payment_revisions", "authorization_history_baselines", "authorization_events", "authorizations", "payments", "requests", "splits", "settlements", "operators", "users", "meta")
+CLOCK_HIGH_WATER = None
 
 
 class APIError(Exception):
@@ -37,7 +38,24 @@ def malformed(message="Malformed request"):
 
 
 def timestamp():
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return server_clock().isoformat(timespec="microseconds")
+
+
+def server_clock():
+    global CLOCK_HIGH_WATER
+    with WRITE_LOCK:
+        now = datetime.now(timezone.utc)
+        if CLOCK_HIGH_WATER is not None and now <= CLOCK_HIGH_WATER:
+            now = CLOCK_HIGH_WATER + timedelta(microseconds=1)
+        CLOCK_HIGH_WATER = now
+        return now
+
+
+def retain_clock(value):
+    global CLOCK_HIGH_WATER
+    with WRITE_LOCK:
+        if CLOCK_HIGH_WATER is None or value > CLOCK_HIGH_WATER:
+            CLOCK_HIGH_WATER = value
 
 
 def new_id(prefix):
@@ -146,6 +164,19 @@ def initialize():
                 payment_id TEXT, remaining_amount INTEGER NOT NULL
             );
             CREATE INDEX IF NOT EXISTS authorization_event_order ON authorization_events(authorization_id, seq);
+            CREATE TABLE IF NOT EXISTS wallet_openings (
+                user_id TEXT PRIMARY KEY, opening_amount INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS payment_revisions (
+                payment_id TEXT NOT NULL, revision INTEGER NOT NULL, amount INTEGER NOT NULL,
+                effective_at TEXT NOT NULL, recorded_at TEXT NOT NULL, reason TEXT NOT NULL,
+                PRIMARY KEY(payment_id, revision)
+            );
+            CREATE INDEX IF NOT EXISTS revisions_known ON payment_revisions(payment_id, recorded_at);
+            CREATE TABLE IF NOT EXISTS authorization_history_baselines (
+                authorization_id TEXT PRIMARY KEY, baseline_at TEXT NOT NULL,
+                held_amount INTEGER NOT NULL, provenance TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS splits (
                 seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
                 creator_id TEXT NOT NULL, amount INTEGER NOT NULL, note TEXT NOT NULL,
@@ -162,6 +193,8 @@ def initialize():
             );
         """)
         db.executemany("INSERT OR IGNORE INTO meta(key, value) VALUES(?, ?)", (("currency", "EUR"), ("minor_units", "2"), ("seed_total", "0"), ("authorization_ttl_seconds", "600")))
+        db.executemany("INSERT OR IGNORE INTO meta(key, value) VALUES(?, ?)", (("reset_generation",new_id("generation_")),("clock_high_water",timestamp())))
+        retain_clock(datetime.fromisoformat(get_meta(db)["clock_high_water"]))
 
 
 def required_string(obj, key, fixture=False):
@@ -339,20 +372,30 @@ def validate_fixture(fixture):
 
 
 def reset(db, fixture):
+    from history import parse_instant, instant
+    from history_store import seed
+    now = server_clock()
     currency, minor_units, users, payments, requests, operators, total = validate_fixture(fixture)
     from holds import prepare_fixture_authorizations
-    ttl, authorizations, payment_authorizations = prepare_fixture_authorizations(fixture, users, payments)
-    created_at = timestamp()
+    ttl, authorizations, payment_authorizations = prepare_fixture_authorizations(fixture, users, payments, now)
+    created_at = now.isoformat()
+    payment_times = {item["id"]:item.get("created_at",created_at) for item in fixture.get("payments",[])}
+    authorization_times = {item["id"]:item.get("created_at",created_at) for item in fixture.get("authorizations",[])}
+    for value in list(payment_times.values()) + list(authorization_times.values()):
+        if parse_instant(value) > instant(now):
+            validation("Seeded creation cannot be in the future")
     with write_transaction(db):
         for table in TABLES:
             db.execute(f"DELETE FROM {table}")
         db.executemany("INSERT INTO meta(key, value) VALUES(?, ?)", (("currency", currency), ("minor_units", str(minor_units)), ("seed_total", str(total)), ("authorization_ttl_seconds", str(ttl))))
+        db.executemany("INSERT INTO meta(key,value) VALUES(?,?)", (("reset_generation",new_id("generation_")),("clock_high_water",created_at)))
         db.executemany("INSERT INTO users VALUES(?, ?, ?, ?, ?, ?, ?, ?)", users)
         db.executemany("INSERT INTO operators(user_id) VALUES(?)", ((user_id,) for user_id in operators))
-        db.executemany("INSERT INTO payments(id, from_user_id, to_user_id, amount, note, visibility, request_id, settlement_id, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)", (payment + (created_at,) for payment in payments))
+        db.executemany("INSERT INTO payments(id, from_user_id, to_user_id, amount, note, visibility, request_id, settlement_id, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)", (payment + (payment_times[payment[0]],) for payment in payments))
         db.executemany("INSERT INTO requests(id, requester_id, payer_id, amount, note, status, payment_id, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)", (request + (created_at,) for request in requests))
-        db.executemany("INSERT INTO authorizations(id, from_user_id, to_user_id, amount, captured_amount, note, visibility, status, expires_at, payment_id, payment_ids_json, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (row + (created_at,) for row in authorizations))
+        db.executemany("INSERT INTO authorizations(id, from_user_id, to_user_id, amount, captured_amount, note, visibility, status, expires_at, payment_id, payment_ids_json, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (row + (authorization_times[row[0]],) for row in authorizations))
         db.executemany("UPDATE payments SET authorization_id = ? WHERE id = ?", payment_authorizations)
+        seed(db,now)
 
 
 def get_meta(db):

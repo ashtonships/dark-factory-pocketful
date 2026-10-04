@@ -1,10 +1,10 @@
-# Pocketful stage 2
+# Pocketful stage 3
 
 From this directory, build and start the self-contained HTTP service:
 
 ```sh
-docker build -t pocketful-stage-2 .
-docker run --rm --cpus 2 --memory 2g -e PORT=18080 -p 18080:18080 pocketful-stage-2
+docker build -t pocketful-stage-3 .
+docker run --rm --cpus 2 --memory 2g -e PORT=18080 -p 18080:18080 pocketful-stage-3
 ```
 
 For isolated verification, replace the port mapping with `--network none` and check through `docker exec` against `http://127.0.0.1:18080/health` inside the container. No runtime operation needs outbound access. The container keeps its SQLite database on ephemeral local storage and accepts a fixture through `POST /_test/reset`.
@@ -18,3 +18,7 @@ Export remains `format_version: 1`; import accepts the stage-1 table set, preser
 Every connection uses WAL `synchronous=NORMAL`; transactions remain atomic while container-restart durability is not required. Login hashes outside any transaction and inserts its token in a SQLite writer transaction without the process lock, rechecking the original credentials against reset/import before insertion.
 
 Exports include an internal `authorization_events` table. Captures record their payment time and post-action held remainder; void records its server event time. Export materializes a clock expiry once at `expires_at`, under the writer transaction, without changing stored authorization status or any public response. Older stage-1/2 exports without the table import with an empty event history. Missing legacy release times are not invented. Reset clears event history along with the other state.
+
+Stage-3 history stores fixed `wallet_openings`, immutable `payment_revisions`, and `authorization_history_baselines`. Reset loads seeded ending balances without applying seeded transfers again, derives openings from original effects and validates history. Original revisions are inserted for every immediate payment, request payment, settlement member and capture. Seeded payment/authorization creation times must be RFC3339 instants no later than reset. New accounts open at zero. Legacy imports synthesize missing original revisions and openings while preserving sessions and saved JSON responses. D-19 closed legacy holds with no release records use the seeded closed-history exemption.
+
+`history.py` is read-only: callers authenticate and hold one SQLite snapshot, capture one clock through `holds.clock()` and reuse it. `parse_instant(text)` returns an exact comparable `Decimal` UTC key, preserving fractions; `instant(aware_datetime)` produces the same type. Query functions accept either that key or an aware datetime. `selected_revisions(conn,user_id,K)` returns dictionaries containing `payment` (selected amount), `revision`, `effective_at`, `recorded_at`, `delta`. `total(conn,user_id,T,K,inclusive=True)` returns integer money; `inclusive=False` computes a statement's immediately-before boundary. `held(conn,user_id,T,K)` returns integer held funds. `statement_rows(conn,user_id,start,end,K)` returns all ordered entries with `balance_after`, before pagination; `start=None` means the opening of the wallet. `opening(conn,user_id)` returns its fixed opening balance. These functions never write or read a clock. `has_overdraft(conn,user_ids,now)` checks combined past effective/event boundaries with latest known revisions. `meta.reset_generation` changes only at reset and can bind W-10's in-process snapshots; importing state preserves the local generation. `clock_high_water` and the process clock advance monotonically at microsecond precision.
