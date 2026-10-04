@@ -17,7 +17,7 @@ from core import (
 from state import export_state, import_state
 from history_store import baseline, original
 import statement
-from corrections import correct, revisions
+from corrections import correct, refund, revisions
 from history import instant, parse_instant
 from holds import STATUSES, authorization_body, capture_value, clock, effective_status, expiry, lifetime, record_event, wallet_funds
 
@@ -26,7 +26,7 @@ MAX_BODY_BYTES = 8 * 1024 * 1024
 MAX_OFFSET = 2**63 - 1
 REQUEST_ACTION = re.compile(r"^/requests/([^/]+)/(pay|decline|cancel)$")
 AUTHORIZATION_ACTION = re.compile(r"^/authorizations/([^/]+)/(capture|void)$")
-PAYMENT_HISTORY = re.compile(r"^/payments/([^/]+)/(corrections|revisions)$")
+PAYMENT_HISTORY = re.compile(r"^/payments/([^/]+)/(corrections|revisions|refunds)$")
 UI_ROOT = Path(__file__).resolve().parent / "ui"
 PAGES = {"/": "index.html", "/requests": "requests.html", "/split": "split.html", "/signup": "signup.html", "/login": "login.html", "/authorizations": "authorizations.html"}
 ASSETS = {"/ui/pocketful-core.js": ("pocketful-core.js", "text/javascript; charset=utf-8"), "/ui/app.js": ("app.js", "text/javascript; charset=utf-8"), "/ui/theme.css": ("theme.css", "text/css; charset=utf-8")}
@@ -364,7 +364,8 @@ class PocketfulHandler(BaseHTTPRequestHandler):
                 body = json_body(raw_body)
                 history_action = PAYMENT_HISTORY.fullmatch(path)
                 if history_action:
-                    self.idempotent(db,user,path,body,lambda db,user,body:correct(self,db,user,body,history_action.group(1)))
+                    operation = refund if history_action.group(2) == "refunds" else correct
+                    self.idempotent(db,user,path,body,lambda db,user,body:operation(self,db,user,body,history_action.group(1)))
                     return
                 if path == "/authorizations":
                     self.idempotent(db, user, path, body, self.create_authorization)

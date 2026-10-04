@@ -1,7 +1,7 @@
 """Stage-3 storage helpers. All write calls run in the caller's writer transaction."""
 import json
 from datetime import datetime, timezone
-from core import new_id, validation
+from core import identifier, new_id, validation
 from history import has_overdraft, instant, parse_instant, total
 
 HISTORY_TABLES = {"wallet_openings", "payment_revisions", "authorization_history_baselines"}
@@ -95,11 +95,39 @@ def validate(conn, now):
                 original_at = settlement["committed_at"]
         previous = None
         for index,revision in enumerate(revisions,1):
-            if revision["revision"] != index or (index==1 and (revision["amount"] != payment["amount"] or revision["reason"] != "" or parse_instant(revision["effective_at"]) != parse_instant(original_at) or parse_instant(revision["recorded_at"]) != parse_instant(original_at))):
+            if revision["revision"] != index or (index==1 and (revision["amount"] != payment["amount"] or revision["reason"] != "" or revision["correction_batch_id"] is not None or parse_instant(revision["effective_at"]) != parse_instant(original_at) or parse_instant(revision["recorded_at"]) != parse_instant(original_at))):
                 validation("Invalid original revision")
-            if index > 1 and (not 1 <= len(revision["reason"]) <= 200 or payment["settlement_id"] or payment["authorization_id"] or parse_instant(revision["recorded_at"]) <= previous):
+            if index > 1 and (not 1 <= len(revision["reason"]) <= 200 or payment["authorization_id"] or payment["refund_of"] or (payment["settlement_id"] and revision["correction_batch_id"] is None) or parse_instant(revision["recorded_at"]) <= previous):
                 validation("Invalid correction history")
             previous = parse_instant(revision["recorded_at"])
+    refunded={}
+    for payment in payments.values():
+        target_id=payment["refund_of"]
+        if target_id is None:
+            continue
+        target=payments.get(target_id)
+        if target is None or target["refund_of"] is not None or payment["from_user_id"]!=target["to_user_id"] or payment["to_user_id"]!=target["from_user_id"] or payment["request_id"] is not None or payment["authorization_id"] is not None or payment["settlement_id"] is not None or payment["note"]!=target["note"] or payment["visibility"]!=target["visibility"] or parse_instant(payment["created_at"])<parse_instant(target["created_at"]):
+            validation("Invalid refund linkage")
+        refunded[target_id]=refunded.get(target_id,0)+payment["amount"]
+    if any(value>grouped[payment_id][-1]["amount"] for payment_id,value in refunded.items()):
+        validation("Refunds exceed corrected payment")
+    batches={}
+    for revisions in grouped.values():
+        for revision in revisions:
+            identity=revision["correction_batch_id"]
+            if identity is not None:
+                if not identifier(identity):
+                    validation("Invalid correction batch identity")
+                batches.setdefault(identity,[]).append(revision)
+    for revisions in batches.values():
+        if not 1<=len(revisions)<=32 or len({r["payment_id"] for r in revisions})!=len(revisions) or len({parse_instant(r["recorded_at"]) for r in revisions})!=1:
+            validation("Invalid correction batch history")
+        by_id={r["payment_id"]:r for r in revisions}
+        settlement_ids={payments[r["payment_id"]]["settlement_id"] for r in revisions}-{None}
+        for identity in settlement_ids:
+            members={p["id"] for p in payments.values() if p["settlement_id"]==identity}
+            if not members<=set(by_id) or len({parse_instant(by_id[pid]["effective_at"]) for pid in members})!=1:
+                validation("Invalid settlement correction batch")
     holds = {row["id"]:row for row in conn.execute("SELECT * FROM authorizations")}
     baselines = {row["authorization_id"]:row for row in conn.execute("SELECT * FROM authorization_history_baselines")}
     if set(holds) != set(baselines):

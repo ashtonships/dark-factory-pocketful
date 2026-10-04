@@ -6,7 +6,7 @@ An exception rolls all provisional revisions back with the caller's transaction.
 """
 from datetime import datetime, timedelta
 from decimal import Decimal
-from core import APIError, MAX_BALANCE, amount, retain_clock, validation
+from core import APIError, MAX_BALANCE, amount, new_id, payment_body, retain_clock, validation
 from history import has_overdraft, instant, parse_instant
 from holds import wallet_funds
 
@@ -108,6 +108,29 @@ def correct(handler,conn,user,body,payment_id):
     check_history(conn,changes,recorded)
     apply_balances(conn,changes)
     return result
+
+
+def refund(handler,conn,user,body,payment_id):
+    value=amount(body)
+    payment=conn.execute("SELECT * FROM payments WHERE id=?",(payment_id,)).fetchone()
+    if payment is None:
+        raise APIError(404,"not_found")
+    if user["id"]!=payment["to_user_id"]:
+        raise APIError(403,"forbidden")
+    if payment["refund_of"] is not None:
+        raise APIError(422,"invalid_refund_target")
+    latest=conn.execute("SELECT amount FROM payment_revisions WHERE payment_id=? ORDER BY revision DESC LIMIT 1",(payment_id,)).fetchone()
+    if refunded_total(conn,payment_id)+value>latest["amount"]:
+        raise APIError(422,"refund_exceeds_payment")
+    changes={payment["to_user_id"]:-value,payment["from_user_id"]:value}
+    check_current(conn,changes,handler.now)
+    identity=new_id("p_")
+    conn.execute("INSERT INTO payments(id,from_user_id,to_user_id,amount,note,visibility,created_at,refund_of) VALUES(?,?,?,?,?,?,?,?)",
+                 (identity,payment["to_user_id"],payment["from_user_id"],value,payment["note"],payment["visibility"],handler.now.isoformat(),payment_id))
+    from history_store import original
+    original(conn,identity)
+    apply_balances(conn,changes)
+    return payment_body(conn,conn.execute("SELECT * FROM payments WHERE id=?",(identity,)).fetchone())
 
 
 def revisions(conn,user,payment_id):

@@ -131,6 +131,10 @@ def initialize():
             CREATE TABLE IF NOT EXISTS tokens (
                 token TEXT PRIMARY KEY, user_id TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS statement_snapshots (
+                token TEXT PRIMARY KEY, user_id TEXT NOT NULL,
+                generation TEXT NOT NULL, snapshot_json TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS operators (
                 user_id TEXT PRIMARY KEY
             );
@@ -386,6 +390,7 @@ def reset(db, fixture):
         if parse_instant(value) > instant(now):
             validation("Seeded creation cannot be in the future")
     with write_transaction(db):
+        db.execute("DELETE FROM statement_snapshots")
         for table in TABLES:
             db.execute(f"DELETE FROM {table}")
         db.executemany("INSERT INTO meta(key, value) VALUES(?, ?)", (("currency", currency), ("minor_units", str(minor_units)), ("seed_total", str(total)), ("authorization_ttl_seconds", str(ttl))))
