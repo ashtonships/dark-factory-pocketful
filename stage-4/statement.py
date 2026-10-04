@@ -200,32 +200,40 @@ def export_snapshots(db):
     return exported
 
 
+def _record(snapshot, generation):
+    result = dict(snapshot["result"])
+    entries = result.pop("entries")
+    return {"owner": snapshot["user_id"], "generation": generation, "head": result, "entries": entries, "token": snapshot["token"]}
+
+
 def validate_snapshots(items):
-    """The export's `snapshots` value (None: no snapshots), checked and normalized.
-    Raises 422 validation_failed on any bad shape, without touching the store."""
+    """The export's `snapshots` value (None: no snapshots) checked and normalized into
+    export-shaped dicts. Raises 422 validation_failed on any bad shape; it never
+    changes the store."""
     if items is None:
         return []
     if not isinstance(items, list):
         validation("Invalid snapshots")
-    seen = set()
-    valid = []
+    valid = {}
     for item in items:
         token, user_id, head, entries = _imported(item)
-        if token in seen:
-            validation("Duplicate snapshot token")
-        seen.add(token)
-        valid.append((token, user_id, head, entries))
-    return valid
+        snapshot = {"token": token, "user_id": user_id, "result": dict(head, entries=entries)}
+        if valid.get(token, snapshot) != snapshot:
+            validation("Conflicting snapshot token")
+        valid[token] = snapshot
+    return list(valid.values())
 
 
 def import_snapshots(db, items):
-    """Restore exported snapshots, bound to this service's current generation.
-    Existing tokens stay until reset; an imported token replaces one with the same
-    value. Everything is validated before the store changes.
-    Stage-4 writes the rows in the caller's import transaction."""
+    """Merge exported snapshots into statement_snapshots, bound to this service's
+    current generation, inside the caller's import transaction. Local tokens stay
+    until reset, an identical token replays, and a token that would change a live
+    frozen result is 422."""
     generation = _generation(db)
-    restored = {token: {"owner": user_id, "generation": generation, "head": head, "entries": entries, "token": token}
-                for token, user_id, head, entries in validate_snapshots(items)}
-    for snapshot in restored.values():
+    for snapshot in validate_snapshots(items):
+        row = db.execute("SELECT * FROM statement_snapshots WHERE token = ?", (snapshot["token"],)).fetchone()
+        if row is not None and row["generation"] == generation and (
+                row["user_id"] != snapshot["user_id"] or json.loads(row["snapshot_json"]) != snapshot["result"]):
+            validation("Conflicting snapshot token")
         db.execute("DELETE FROM statement_snapshots WHERE token = ?", (snapshot["token"],))
-        _store(db, snapshot)
+        _store(db, _record(snapshot, generation))
