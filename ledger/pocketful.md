@@ -105,6 +105,11 @@ quotes” (the quote is what `tools/spec_coverage.py` matches). `N/A:` lines are
   they page their frozen entries until the next reset. Reason: keeps 3045 and stage-3's "tokens last until reset"
   (stage-3.md:140); restart survival stays not required. Frozen-folder change via entry 3046; Checker re-runs the full
   stage-3 gate.
+  D-27 merge rule: import merges, never replaces. A live local token stays until reset. An imported token
+  identical to a live one (same owner and frozen result) is accepted unchanged. An imported token that clashes with a
+  live one (different owner or result), or a duplicate token inside one export, makes the whole import 422
+  `validation_failed` with no change to state, receipts or snapshots. Reason: a frozen result must never change
+  (stage-3.md:137, "pages that exact result"), and import is atomic (stage-1 import rules).
 
 ## Work items (stage 1)
 
