@@ -96,6 +96,15 @@ quotes” (the quote is what `tools/spec_coverage.py` matches). `N/A:` lines are
 - **D-26 Stage-4 cut**: stage 4 must be accepted (gate green) by Sun 14:00 CDT. Otherwise the entry is stages 1–3 at
   main f556fba and stage-4/ is removed from the submission. Reason: it leaves 4 h for the final review and report
   before 18:00.
+- **D-27 Snapshot retention across upgrade (amends frozen stage-3)**: 3045 requires a stage-4 import of a stage-3
+  export to retain snapshots, but accepted stage-3 keeps tokens only in process memory and exports none, so the literal
+  reading would leave 3045 unmet. Stage-3 export therefore gains an additive `snapshots` array (token, user_id,
+  generation-free frozen result: window, revisions, balances, entries, default `to`), still `format_version: 1`; stage-3
+  and stage-4 import restore it, and an absent array means none (stage-1/2 exports, older stage-3 exports). Stage-4
+  persists snapshots in `statement_snapshots`. Imported tokens bind to the importing service's current generation, so
+  they page their frozen entries until the next reset. Reason: keeps 3045 and stage-3's "tokens last until reset"
+  (stage-3.md:140); restart survival stays not required. Frozen-folder change via entry 3046; Checker re-runs the full
+  stage-3 gate.
 
 ## Work items (stage 1)
 
@@ -824,3 +833,4 @@ N/A: “Body:” — stage-4.md:34: introduces the example body; the obligations
 3043. “A settlement payment may be refunded under the existing refund rules, but refunds never change settlement membership.” — stage-4.md:67 · W-11
 3044. “Concurrent corrections sharing any expected payment revision cannot both succeed.” — stage-4.md:68 · W-12 · Applies to single corrections and batches alike, and across the two paths.
 3045. “A stage-4 service must accept exports produced by the same team's stages 1–3, retaining settlement membership, corrections and snapshots.” — stage-4.md:70 · W-11 · D-24: format_version stays 1; a stage-4 import accepts stage 1–3 exports; absent refund_of means null.
+3046. “A stage-4 service must accept exports produced by the same team's stages 1–3, retaining … snapshots.” — stage-4.md:70–71 · W-11 (Builder: export/import, core.py, both stage-3/ and stage-4/) + W-13 (Builder-Two: statement.py snapshot store accessors, both stages) · D-27. Frozen stage-3 amendment; requires a full stage-3 re-check.
