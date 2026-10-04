@@ -52,6 +52,13 @@ quotes” (the quote is what `tools/spec_coverage.py` matches). `N/A:` lines are
   "in the order given" and §9 gives remainders "to the first participants in participant_handles order"; an
   implicit caller would need a position the request never states.
 
+- **D-16 Time windows**: `as_of` is inclusive; statement windows are half-open `[from, to)`; both read instants
+  may be in the future; one clock reading per request decides "now".
+- **D-17 Statement ties**: equal effective times order by payment id ascending as the spec states; ids are opaque
+  strings compared bytewise.
+- **D-18 Recorded time**: `recorded_at` uses microsecond precision and strictly increases per payment (bumped by
+  1 µs when the clock has not advanced), so revision order and known_at selection are unambiguous.
+
 ## Work items (stage 1)
 
 | Item | Seat | Entries | Scope |
@@ -64,6 +71,8 @@ quotes” (the quote is what `tools/spec_coverage.py` matches). `N/A:` lines are
 | W-D | Builder | 1016–1027 | Three concepts per screen, picked by Checker; starts when W-1 is accepted |
 | W-6 | Builder-Two | stage-2 UI entries (W-7 list) | Screen structure and behaviour, unstyled, in ui-core/ |
 | W-7 | Builder-Two | 1005–1006, 1008–1012, 1015–1027, 1029–1101 (UI), 1203, 1205–1221 | Screens in stage-2/ styled to the pick |
+| W-9 | Builder | stage-3 write side (W-9 entries in Stage 3) | Payment timestamps, revisions, corrections, overdraft checks, linked-payment immutability, stage-1/2 import |
+| W-10 | Builder-Two | stage-3 read side (W-10 entries in Stage 3) | as_of/known_at views of /me, statements, snapshots, historical holds, in a separate module |
 | W-8 | Builder | 1001–1002, 1013–1014, 1095, 1102–1202, 1204, 1222 | Stage-2 server: copy of frozen stage-1/, holds and captures, available-based funds, HTML routing, static UI, stage-1 import |
 
 ## Practice-run lessons (made entries so the same faults cannot recur)
@@ -596,3 +605,123 @@ N/A: “The fixture gains a service-wide default lifetime and an `authorizations
 1220. “The UI must reflect seeded and newly created holds.” — stage-2.md:374 · W-7
 1221. “Show available funds as the user's spending balance, including immediately after reset with open holds.” — stage-2.md:374 · W-7
 1222. “Concurrent requests must produce the same results as executing them one at a time in some order, and the requirements above hold at every read.” — stage-2.md:379 · W-8
+
+
+## Stage 3 entries
+
+2001. “The requirements from stages 1 and 2 continue to apply, with the additions below.” — stage-3.md:3 · W-9
+2002. “Numbered section references such as §5 and §7 refer to `stage-1.md`.” — stage-3.md:4 · W-9
+N/A: “Users can request historical balances and paginated statements.” — stage-3.md line 6: scope summary
+N/A: “Senders can correct eligible payments while preserving the original receipt.” — stage-3.md line 6: scope summary; see 2046-2066
+N/A: “Historical queries must support both the effective date of a payment and the information available at a specified time.” — stage-3.md line 7: scope summary; see 2070-2083
+2006. “Every payment's `created_at` is an RFC 3339 instant with an offset identifying when it moved money.” — stage-3.md:12 · W-9
+2007. “Every endpoint returning a payment includes it.” — stage-3.md:13 · W-9
+2008. “`GET /activity` retains its existing ordering by this field.” — stage-3.md:13 · W-9
+2009. “Seeded payments may supply `created_at`; omission uses reset time, before subsequent API-created payments.” — stage-3.md:16 · W-9
+2010. “A seeded `created_at` in the future gives `422 validation_failed` from `POST /_test/reset`, with no state change.” — stage-3.md:17 · W-9
+2011. “A fixture's `balance` remains the balance after all seeded payments.” — stage-3.md:20 · W-9
+2012. “Loading those payments must not change that balance.” — stage-3.md:20 · W-9
+2013. “`as_of` is optional and is an RFC 3339 instant with an offset.” — stage-3.md:29 · W-10
+2014. “Anything else — a naive local time, a bare date, an empty value — is 422 `validation_failed`.” — stage-3.md:29 · W-10
+2015. “Without temporal query parameters the response retains the existing money fields and reports current corrected values.” — stage-3.md:30 · W-10
+2016. “With it, `balance` is the caller's balance as it stood at that instant: the balance after every payment of theirs with `created_at` at or before `as_of`, and before every payment after it.” — stage-3.md:33 · W-10 · Decision D-16: as_of is inclusive (payment at exactly as_of counts); statement windows are half-open [from,to).
+2017. “A payment made at exactly `as_of` counts as having happened.” — stage-3.md:34 · W-10
+2018. “An `as_of` at or after the latest payment returns the current balance.” — stage-3.md:37 · W-10
+2019. “An `as_of` before the earliest payment returns the opening balance — what the wallet held” — stage-3.md:38 · W-10
+2020. “before anything moved.” — stage-3.md:39 · W-10
+2021. “The response carries `as_of` back, exactly as given.” — stage-3.md:40 · W-10
+2022. “Both `from` and `to` are optional; `from` defaults to the opening of the wallet and `to` to now.” — stage-3.md:48 · W-10
+2023. “`limit` and `offset` behave exactly as in `GET /requests`.” — stage-3.md:49 · W-10
+2024. “Returns the payments the caller sent or received in the half-open window `[from, to)`, **oldest first**, each with the caller's balance immediately after it:” — stage-3.md:51 · W-10
+N/A: “This abbreviated example omits the revision fields and `snapshot` token described below.” — stage-3.md line 54: describes the abbreviated example
+N/A: “Statement requirements:” — stage-3.md line 66: label introducing 2027-2035
+2027. “Entries are ordered by `created_at` ascending, then payment `id` ascending for ties.” — stage-3.md:68 · W-10 · Ties by payment id ascending (string comparison of the opaque id); D-17: payment ids must sort in creation order within a second, or the tie order is simply by id as stated.
+2028. “`opening_balance` is the balance immediately before `from`.” — stage-3.md:69 · W-10
+2029. “`closing_balance` is the” — stage-3.md:69 · W-10
+2030. “balance immediately before `to`.” — stage-3.md:70 · W-10
+2031. “`opening_balance` plus all `delta` values in the full window must equal `closing_balance`.” — stage-3.md:71 · W-10
+2032. “A sent payment has a negative `delta`; a received payment has a positive `delta`.” — stage-3.md:72 · W-10
+2033. “Pagination must not change an entry's `balance_after` or the window's opening and closing” — stage-3.md:73 · W-10
+2034. “balances.” — stage-3.md:74 · W-10
+2035. “These values describe the full window regardless of `limit` and `offset`.” — stage-3.md:74 · W-10
+2036. “Only payments sent or received by the caller appear in their statement, including when other payments are public.” — stage-3.md:76 · W-10
+2037. “The activity-feed visibility rules do not apply to statements.” — stage-3.md:77 · W-10
+2038. “The service must distinguish **when money took effect** from **when it learned that fact**.” — stage-3.md:81 · W-9
+2039. “Every payment has a revision history.” — stage-3.md:82 · W-9
+2040. “Revision 1 has `amount` as originally paid and `effective_at = recorded_at = created_at`.” — stage-3.md:82 · W-9
+2041. “A seeded payment's supplied `created_at` is also its original recorded/effective time; omission uses reset time.” — stage-3.md:83 · W-9
+2042. “Opening balances equal seeded ending balances minus the net effect of original seeded payments.” — stage-3.md:84 · W-9
+2043. “Corrections must not change those opening balances.” — stage-3.md:85 · W-9
+2044. “New accounts open at zero.” — stage-3.md:86 · W-9
+N/A: “Seeded history is consistent and nonnegative.” — stage-3.md line 86: assumption about fixtures, not a product obligation
+2046. “`POST /payments/{payment_id}/corrections` requires an idempotency key and the original sender.” — stage-3.md:89 · W-9
+2047. “An authenticated non-sender gets 403 `forbidden`; unknown payment gets 404.” — stage-3.md:90 · W-9
+N/A: “Body:” — stage-3.md line 90: label for the example body
+2049. “All fields are required.” — stage-3.md:97 · W-9
+2050. “Revision is a positive integer; amount is an integer 0..1000000000 (zero reverses the entire payment); reason is a string of 1..200 characters; effective time is an RFC 3339 instant not later than now.” — stage-3.md:97 · W-9
+2051. “Invalid input is 422 `validation_failed`.” — stage-3.md:99 · W-9
+2052. “Correction changes neither parties nor visibility.” — stage-3.md:100 · W-9
+2053. “It appends an immutable revision, returning 201 with `payment_id`, `revision`, `amount`, `effective_at`, server-assigned `recorded_at`, and `reason`.” — stage-3.md:100 · W-9
+2054. “Recorded times for one payment strictly increase.” — stage-3.md:102 · W-9 · recorded_at strictly increases per payment even within the same clock second: D-18 uses microsecond timestamps and bumps by 1 µs when needed.
+2055. “A stale expected revision gives 409 `stale_revision`.” — stage-3.md:102 · W-9
+2056. “Successful replay returns that original revision with 200 even after newer revisions.” — stage-3.md:103 · W-9
+2057. “Different body with the same key is 409 `idempotency_key_reuse`.” — stage-3.md:104 · W-9
+2058. “The difference from the previous amount moves between the **same two wallets** in the same atomic step.” — stage-3.md:106 · W-9
+2059. “Increasing the amount debits the original sender; decreasing it debits the original receiver.” — stage-3.md:107 · W-9
+2060. “A currently unaffordable debit gives 409 `insufficient_funds`.” — stage-3.md:108 · W-9
+2061. “Otherwise, if any user's corrected balance is negative at any effective-time boundary, return 409 `historical_overdraft`.” — stage-3.md:108 · W-9 · Check every effective-time boundary of both wallets under the latest known revisions, including holds (2111).
+2062. “Balances at a boundary include the combined effect of all movements at that instant.” — stage-3.md:110 · W-9
+2063. “Either failure preserves balances, revision history, statements and idempotency state.” — stage-3.md:111 · W-9
+2064. “The sum of balances must equal the seeded total in every historical view.” — stage-3.md:112 · W-9
+2065. “The original payment and every original idempotent response remain unchanged.” — stage-3.md:114 · W-9
+2066. “`GET /activity` continues to display the original payment; correction records are not new feed payments.” — stage-3.md:114 · W-9
+2067. “`GET /payments/{payment_id}/revisions` returns `{"revisions": [...]}` in revision order, including revision 1 (`reason: ""`).” — stage-3.md:116 · W-9
+2068. “Only the two parties can read it; a third party gets 404 even for a public payment.” — stage-3.md:117 · W-9
+2069. “No token is 401.” — stage-3.md:118 · W-9
+2070. “`GET /me` and `GET /statement` accept optional `known_at`, an RFC 3339 instant with offset.” — stage-3.md:120 · W-10
+2071. “For each payment, select its latest revision recorded **at or before** `known_at`; if none was yet recorded, that payment contributes nothing.” — stage-3.md:121 · W-10
+2072. “Omission means everything known when the read begins.” — stage-3.md:122 · W-10
+2073. “Then apply selected revisions according to their **effective** times.” — stage-3.md:123 · W-10
+2074. “`as_of` retains its inclusive meaning; a statement retains its half-open window.” — stage-3.md:123 · W-10
+2075. “Both query instants may be in the future.” — stage-3.md:124 · W-10
+2076. “Invalid/empty instants are 422.” — stage-3.md:125 · W-10
+2077. “Echo supplied `known_at` exactly.” — stage-3.md:125 · W-10
+2078. “Statement ordering is now by selected `effective_at`, then payment id.” — stage-3.md:127 · W-10
+2079. “Each entry retains `payment`, `delta` and `balance_after`, and adds the selected `revision`, `effective_at` and `recorded_at`.” — stage-3.md:127 · W-10
+2080. “`payment.amount` is the selected amount for this statement.” — stage-3.md:129 · W-10
+2081. “Zero-amount revisions still appear as entries with zero delta.” — stage-3.md:129 · W-10
+2082. “No correction is counted alongside the revision it replaces.” — stage-3.md:130 · W-10
+2083. “With no corrections and no `known_at`, previous behavior is unchanged.” — stage-3.md:131 · W-10
+2084. “Every first `GET /statement` response additionally returns an opaque `snapshot` token.” — stage-3.md:135 · W-10 · Snapshots are kept in memory or SQLite until reset.
+2085. “It freezes the caller's selected revisions, window, balances, entries and default `to` at that read.” — stage-3.md:136 · W-10
+2086. “`GET /statement?snapshot=<token>&limit=...&offset=...` pages that exact result, even after payments or corrections.” — stage-3.md:137 · W-10
+2087. “Only limit and offset may accompany a snapshot; supplying `from`, `to` or `known_at` with it gives 422 `validation_failed`.” — stage-3.md:138 · W-10
+2088. “Unknown token, another user's token, or a token from before reset gives 404 `not_found`.” — stage-3.md:139 · W-10
+2089. “Tokens last until reset.” — stage-3.md:140 · W-10
+N/A: “No storage survival across container restarts is required.” — stage-3.md line 140: permission: no restart survival required
+2091. “Paging changes neither balances nor entries; the final partial page and offsets beyond the end must report `has_more` correctly.” — stage-3.md:141 · W-10
+2092. “Unrecognized query parameters remain ignored under stage 1's general rule.” — stage-3.md:143 · W-10
+2093. “A correction may move a payment into or out of a statement window.” — stage-3.md:145 · W-10
+2094. “Existing snapshots remain unchanged during concurrent payments or corrections.” — stage-3.md:145 · W-10
+2095. “Concurrent corrections using the same expected revision cannot both succeed.” — stage-3.md:146 · W-9
+2096. “Stage-1 settlements retain their original receipts and privacy rules.” — stage-3.md:151 · W-9
+2097. “Each member's original revision uses its shared committed_at as both effective_at and recorded_at.” — stage-3.md:151 · W-9
+2098. “Single-payment corrections reject settlement members with 422 `linked_payment_immutable`.” — stage-3.md:153 · W-9
+2099. “A stage-3 service must accept exports produced by the same team's stage-1 or stage-2 service.” — stage-3.md:155 · W-9 · A stage-3 import accepts stage-1 and stage-2 exports unchanged (format_version 1, D-12).
+2100. “The ledger must import and account for authorizations and captures.” — stage-3.md:156 · W-9
+2101. “Captures are immutable linked payments: a correction of a capture gives 422 `linked_payment_immutable`.” — stage-3.md:156 · W-9
+2102. “For `GET /me?as_of=T&known_at=K`, all four money fields describe that same view: `balance = total`, `available = total - held`.” — stage-3.md:161 · W-10
+2103. “A hold starts at authorization creation; nonfinal capture reduces it at capture time; final capture, void or expiry releases the remainder at that event's time.” — stage-3.md:162 · W-10
+2104. “Expiry takes effect at `expires_at`.” — stage-3.md:164 · W-10
+2105. “Events other than clock expiry are known at their server-assigned event time.” — stage-3.md:164 · W-10
+2106. “Once creation is known, the expiry deadline is known too.” — stage-3.md:166 · W-10
+2107. “For queries beyond now, an open hold expires at its deadline.” — stage-3.md:167 · W-10
+2108. “Without `as_of`, use the instant the request began.” — stage-3.md:167 · W-10 · One clock reading per request (9015).
+2109. “Authorizations expose `closed_at` (null while open; event time when closed).” — stage-3.md:168 · W-9
+2110. “Historical `total` follows stage-3 effective/recorded-time rules.” — stage-3.md:170 · W-10
+2111. “A correction is rejected with 409 `historical_overdraft` if it makes either total or available negative at any past effective/event boundary, under the latest known revisions.” — stage-3.md:170 · W-9
+2112. “Current unaffordable debits still take precedence as `insufficient_funds`.” — stage-3.md:172 · W-9
+2113. “Seeded open holds are assumed created at reset unless `created_at` is supplied; seeded closed holds need not reconstruct a prior lifecycle.” — stage-3.md:173 · W-9
+2114. “`GET /statement` still contains money movements only: authorization, release and expiry are not payments.” — stage-3.md:175 · W-10
+2115. “Captures appear exactly once with their links.” — stage-3.md:176 · W-10
+2116. “Old snapshots remain unchanged after any lifecycle action or correction.” — stage-3.md:176 · W-10
