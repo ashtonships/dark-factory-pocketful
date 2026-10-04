@@ -1,1 +1,58 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pocketful authorizations</title><main><h1>Authorizations</h1><p>Authorizations page awaiting the supplied UI.</p></main></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#136C63">
+<title>Holds · Pocketful</title>
+<link rel="stylesheet" href="/ui/theme.css">
+<script src="/ui/pocketful-core.js" defer></script>
+<script src="/ui/app.js" defer></script>
+</head>
+<body data-page="authorizations">
+<a class="skip" href="#main">Skip to content</a>
+<header id="shell" class="topbar"><div class="shell"><span class="brand">Pocketful</span></div></header>
+<main id="main" class="page page-authorizations">
+  <header class="page-head">
+    <h1>Holds</h1>
+    <p class="lede">Reserve now, recipient collects later.</p>
+    <p class="page-intro">A hold sets money aside from the payer's available balance. The recipient can collect some or all of it before it expires. Holds aren't payments and don't appear in Activity.</p>
+  </header>
+  <section class="card wallet-card" aria-label="Wallet">
+    <h2>Wallet</h2><div id="wallet" class="wallet-body"><div class="wallet-loading" role="status"><span class="sr-only">Loading your balance…</span><span class="sk-bar sk-bar-wide" aria-hidden="true"></span><span class="sk-bar" aria-hidden="true"></span></div></div>
+    <button type="button" class="button button-refresh" data-testid="wallet-refresh">Refresh</button>
+    <div id="refresh-status" class="refresh-status" aria-live="polite"></div>
+  </section>
+  <form class="card form hold-form" id="authorize-form" novalidate>
+    <h2>Hold money</h2>
+    <p class="form-hint">Reserve money for someone. They collect it later; anything left returns to you when the hold expires.</p>
+    <div class="field">
+      <label for="authorize-handle">To handle</label>
+      <input id="authorize-handle" data-testid="authorize-handle" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="e.g. cy">
+    </div>
+    <div class="field">
+      <label for="authorize-amount" data-currency-label="Amount">Amount</label>
+      <input id="authorize-amount" data-testid="authorize-amount" data-amount-input inputmode="decimal" autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="authorize-note">Note <span class="optional">(optional)</span></label>
+      <input id="authorize-note" data-testid="authorize-note" maxlength="200" autocomplete="off" placeholder="e.g. For our trip">
+    </div>
+    <div class="field">
+      <label for="authorize-visibility">Visibility</label>
+      <select id="authorize-visibility" data-testid="authorize-visibility">
+        <option value="public">Public</option>
+        <option value="private">Private</option>
+      </select>
+    </div>
+    <button type="submit" class="button button-primary button-block" data-testid="authorize-submit">Hold money</button>
+    <div id="authorize-messages" class="messages" aria-live="polite"></div>
+  </form>
+  <section class="card holds-card" aria-labelledby="holds-title">
+    <div class="card-head"><h2 id="holds-title">Your holds</h2><p class="card-sub" id="holds-summary"></p></div>
+    <div id="authorization-messages" class="messages" aria-live="polite"></div>
+    <div id="authorizations"><div class="skeleton" role="status"><span class="sr-only">Loading…</span><div class="skeleton-row" aria-hidden="true"><span class="sk-dot"></span><span class="sk-lines"><span></span><span></span></span></div><div class="skeleton-row" aria-hidden="true"><span class="sk-dot"></span><span class="sk-lines"><span></span><span></span></span></div></div></div>
+  </section>
+</main>
+</body>
+</html>

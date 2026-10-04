@@ -61,3 +61,40 @@ code. `selftest.html`, `selftest.js`, `devstub.py` and the drill files need not 
   progress in plain text. The capture form has a "Keep the rest held" box that sends `final: false`.
 - D-11: the authorize form is on both `/` and `/authorizations`, with the pay form's input rules.
 - On `/requests` the payer picks the payment's visibility next to the pay button (`request-visibility-{id}`).
+
+## W-7: integration into stage-2 and Checker's design pick
+
+`stage-2/ui/` carries the six pages, `app.js`, `pocketful-core.js` and `theme.css`, copied from here
+unchanged. The server (Builder's) serves them; nothing else in `stage-2/` changed. The selftest, stub,
+proxy and drills stay in `ui-core/`.
+
+Design: home C, requests A, split A, auth C, holds A, held to the eight rules in
+`ledger/design-pick.md`. Tokens and every visual rule live in `theme.css`.
+
+Dev tools against the real container:
+- `faultproxy.py`: forwards to a real service and injects the same faults as the stub; with
+  `--ui-upstream` it serves pages from stage 2 while API calls go to a switchable upstream.
+- `UPSTREAM=<stage-2 url> DRILL_SCALE=<n> ui-core/run-drill.sh <shots>`: the main browser drill.
+  `DRILL_SCALE` stretches the waits on a loaded host.
+- `upgrade-drill.js`: stage-1 sign-in and lost payment, stage-1 export imported into stage 2, same page
+  recovers.
+- `screens.js`: desktop and 375 px screenshots of every route in its main states.
+
+Where the specification or the pick's rules win over the art:
+- Holds: one `authorization-list`, newest first, as the spec requires, instead of separate open and
+  closed cards. Closed holds are muted and the card head counts open and closed.
+- Visibility is the Public/Private select, not radio buttons (rule 6). The request form has none.
+- On `/requests` the payer picks the payment's visibility in a compact select beside Pay (stage 1: the
+  payer chooses visibility when money moves). The art has no control for it.
+- Pills: pending is neutral, never amber. Incoming and outgoing are neutral. Paid and captured are green
+  (success); declined, cancelled, voided and expired are grey, not red (red is only for refusals).
+  Open holds and held money are mauve.
+- Split's info box is a teal tint, not blue.
+- Capture: "Keep the rest held", unchecked, instead of the art's "Final capture (optional)", so the plain
+  action is the final capture (rule 7). The amount is pre-filled with the remaining amount.
+- Phone navigation is one tab row under the header; the art's bottom bars are not built (rule 1).
+- Parties read "ada → bob" with both real handles, never "You → @bob" (rule 5).
+- The uncertain message is the single sentence "Payment result unknown. Retry with the same details."
+- Buttons and the auth header use primary #136C63, not the lighter teal of the auth art (rule 2).
+- Not built: the art's state-sample strips (rule 8), the user-menu chevron and the "View all payments"
+  link. There is no separate payments page; the feed shows the latest 200.

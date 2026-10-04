@@ -3,95 +3,92 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#136C63">
 <title>Wallet · Pocketful</title>
 <link rel="stylesheet" href="/ui/theme.css">
 <script src="/ui/pocketful-core.js" defer></script>
 <script src="/ui/app.js" defer></script>
 </head>
 <body data-page="index">
+<a class="skip" href="#main">Skip to content</a>
 <header id="shell" class="topbar"><div class="shell"><span class="brand">Pocketful</span></div></header>
-<main class="page">
-  <section class="card wallet" aria-labelledby="wallet-title">
-    <div class="card-head">
-      <h1 id="wallet-title">Your wallet</h1>
-      <button type="button" class="button button-quiet" data-testid="wallet-refresh">Refresh</button>
-    </div>
-    <div id="wallet" class="wallet-body"><p class="loading">Loading your balance…</p></div>
-    <div id="refresh-status" class="messages" aria-live="polite"></div>
+<main id="main" class="page page-index">
+  <section class="wallet-panel" aria-label="Wallet">
+    <h1 class="sr-only">Your wallet</h1><div id="wallet" class="wallet-body"><div class="wallet-loading" role="status"><span class="sr-only">Loading your balance…</span><span class="sk-bar sk-bar-wide" aria-hidden="true"></span><span class="sk-bar" aria-hidden="true"></span></div></div>
+    <button type="button" class="button button-refresh" data-testid="wallet-refresh">Refresh</button>
+    <div id="refresh-status" class="refresh-status" aria-live="polite"></div>
   </section>
-  <div class="columns">
+  <div class="money-forms">
   <form class="card form" id="pay-form" novalidate>
     <h2>Send money</h2>
     <div class="field">
-      <label for="pay-handle">To</label>
-      <input id="pay-handle" data-testid="pay-handle" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="handle">
+      <label for="pay-handle">To handle</label>
+      <input id="pay-handle" data-testid="pay-handle" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="e.g. bob">
     </div>
     <div class="field">
-      <label for="pay-amount" data-currency-label>Amount</label>
+      <label for="pay-amount" data-currency-label="Amount">Amount</label>
       <input id="pay-amount" data-testid="pay-amount" data-amount-input inputmode="decimal" autocomplete="off">
     </div>
     <div class="field">
       <label for="pay-note">Note <span class="optional">(optional)</span></label>
-      <input id="pay-note" data-testid="pay-note" maxlength="200" autocomplete="off">
+      <input id="pay-note" data-testid="pay-note" maxlength="200" autocomplete="off" placeholder="e.g. Lunch">
     </div>
     <div class="field">
-      <label for="pay-visibility">Who can see it</label>
+      <label for="pay-visibility">Visibility</label>
       <select id="pay-visibility" data-testid="pay-visibility">
         <option value="public">Public</option>
-        <option value="private">Private (only the two of you)</option>
+        <option value="private">Private</option>
       </select>
     </div>
-    <button type="submit" class="button button-primary" data-testid="pay-submit">Send</button>
+    <button type="submit" class="button button-primary button-block" data-testid="pay-submit">Send</button>
     <div id="pay-messages" class="messages" aria-live="polite"></div>
   </form>
   <form class="card form" id="request-form" novalidate>
     <h2>Request money</h2>
     <div class="field">
-      <label for="request-handle">From</label>
-      <input id="request-handle" data-testid="request-handle" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="handle">
+      <label for="request-handle">From handle</label>
+      <input id="request-handle" data-testid="request-handle" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="e.g. bob">
     </div>
     <div class="field">
-      <label for="request-amount" data-currency-label>Amount</label>
+      <label for="request-amount" data-currency-label="Amount">Amount</label>
       <input id="request-amount" data-testid="request-amount" data-amount-input inputmode="decimal" autocomplete="off">
     </div>
     <div class="field">
       <label for="request-note">Note <span class="optional">(optional)</span></label>
-      <input id="request-note" data-testid="request-note" maxlength="200" autocomplete="off">
+      <input id="request-note" data-testid="request-note" maxlength="200" autocomplete="off" placeholder="e.g. Dinner">
     </div>
-    <button type="submit" class="button button-primary" data-testid="request-submit">Request</button>
+    <button type="submit" class="button button-primary button-block" data-testid="request-submit">Request</button>
     <div id="request-messages" class="messages" aria-live="polite"></div>
   </form>
-  </div>
-  <div class="columns">
   <form class="card form" id="authorize-form" novalidate>
     <h2>Hold money</h2>
-    <p class="hint">Reserve money now; they collect it later, all at once or in parts. Unclaimed money returns to you when the hold expires.</p>
+    <p class="form-hint">Reserve money for someone. They collect it later; anything left returns to you when the hold expires.</p>
     <div class="field">
-      <label for="authorize-handle">For</label>
-      <input id="authorize-handle" data-testid="authorize-handle" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="handle">
+      <label for="authorize-handle">For handle</label>
+      <input id="authorize-handle" data-testid="authorize-handle" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="e.g. cy">
     </div>
     <div class="field">
-      <label for="authorize-amount" data-currency-label>Amount</label>
+      <label for="authorize-amount" data-currency-label="Amount">Amount</label>
       <input id="authorize-amount" data-testid="authorize-amount" data-amount-input inputmode="decimal" autocomplete="off">
     </div>
     <div class="field">
       <label for="authorize-note">Note <span class="optional">(optional)</span></label>
-      <input id="authorize-note" data-testid="authorize-note" maxlength="200" autocomplete="off">
+      <input id="authorize-note" data-testid="authorize-note" maxlength="200" autocomplete="off" placeholder="e.g. Trip">
     </div>
     <div class="field">
-      <label for="authorize-visibility">Who can see it</label>
+      <label for="authorize-visibility">Visibility</label>
       <select id="authorize-visibility" data-testid="authorize-visibility">
         <option value="public">Public</option>
-        <option value="private">Private (only the two of you)</option>
+        <option value="private">Private</option>
       </select>
     </div>
-    <button type="submit" class="button button-primary" data-testid="authorize-submit">Hold money</button>
+    <button type="submit" class="button button-primary button-block" data-testid="authorize-submit">Hold money</button>
     <div id="authorize-messages" class="messages" aria-live="polite"></div>
   </form>
   </div>
-  <section class="card" aria-labelledby="activity-title">
-    <h2 id="activity-title">Activity</h2>
-    <div id="activity"><p class="loading">Loading activity…</p></div>
+  <section class="card activity" aria-labelledby="activity-title">
+    <div class="card-head"><h2 id="activity-title">Activity</h2><p class="card-sub">Payments only</p></div>
+    <div id="activity"><div class="skeleton" role="status"><span class="sr-only">Loading…</span><div class="skeleton-row" aria-hidden="true"><span class="sk-dot"></span><span class="sk-lines"><span></span><span></span></span></div><div class="skeleton-row" aria-hidden="true"><span class="sk-dot"></span><span class="sk-lines"><span></span><span></span></span></div><div class="skeleton-row" aria-hidden="true"><span class="sk-dot"></span><span class="sk-lines"><span></span><span></span></span></div></div></div>
   </section>
 </main>
 </body>

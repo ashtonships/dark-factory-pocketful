@@ -12,6 +12,8 @@ const path = require("path");
 
 const BASE = process.argv[2] || "http://127.0.0.1:8080";
 const SHOTS = process.argv[3] || null;
+// DRILL_SCALE stretches every wait and fixed pause on a loaded host (default 1).
+const S = Number(process.env.DRILL_SCALE || 1);
 const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
 let passed = 0, failed = 0;
@@ -58,14 +60,14 @@ const T = (id) => `[data-testid="${id}"]`;
 async function text(page, id) { return (await page.locator(T(id)).textContent()).trim(); }
 async function count(page, id) { return page.locator(T(id)).count(); }
 async function attr(page, id, a) { return page.locator(T(id)).getAttribute(a); }
-async function waitText(page, id, expected, timeout = 4000) {
+async function waitText(page, id, expected, timeout = 4000 * S) {
   try { await page.waitForFunction(([s, e]) => { const el = document.querySelector(s); return el && el.textContent.trim() === e; }, [T(id), expected], { timeout }); return true; }
   catch (e) { return false; }
 }
-async function waitGone(page, id, timeout = 4000) {
+async function waitGone(page, id, timeout = 4000 * S) {
   try { await page.locator(T(id)).waitFor({ state: "detached", timeout }); return true; } catch (e) { return false; }
 }
-async function waitPresent(page, id, timeout = 4000) {
+async function waitPresent(page, id, timeout = 4000 * S) {
   try { await page.locator(T(id)).first().waitFor({ state: "attached", timeout }); return true; } catch (e) { return false; }
 }
 async function signIn(page, email) {
@@ -76,19 +78,36 @@ async function signIn(page, email) {
   await page.waitForURL(BASE + "/");
   await waitPresent(page, "wallet-available");
 }
+// Design rule 4: wallet-available is the largest money figure on the page.
+async function availableIsLargest(page) {
+  return page.evaluate(() => {
+    const hero = document.querySelector('[data-testid="wallet-available"]');
+    if (!hero) return { ok: false, why: "no wallet-available" };
+    const size = (el) => parseFloat(getComputedStyle(el).fontSize);
+    const others = Array.from(document.querySelectorAll('[data-testid="wallet-balance"], [data-testid="wallet-held"], .amount, .hold-amount, [data-testid^="split-share-"]'))
+      .filter((el) => el !== hero);
+    const max = Math.max(0, ...others.map(size));
+    return { ok: size(hero) > max, hero: size(hero), max };
+  });
+}
 async function noHorizontalScroll(page) {
   return page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
 }
 
 let browser;
+async function newCtx(opts) {
+  const c = await browser.newContext(opts);
+  c.setDefaultTimeout(10000 * S);
+  return c;
+}
 async function run() {
   browser = await chromium.launch({ executablePath: CHROME, headless: true });
   await call("POST", "/_test/reset", fixture());
   await faults([]);
 
   // ------------------------------------------------------------- auth --
-  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-  ctx.setDefaultTimeout(10000);
+  const ctx = await newCtx({ viewport: { width: 1280, height: 900 } });
+  ctx.setDefaultTimeout(10000 * S);
   const page = await ctx.newPage();
   const posts = [];
   page.on("request", (r) => { if (r.method() === "POST") posts.push(r.url().replace(BASE, "")); });
@@ -116,6 +135,7 @@ async function run() {
     return [px('[data-testid="wallet-available"]'), px('[data-testid="wallet-balance"]'), px('[data-testid="wallet-held"]')];
   });
   check("available is visibly the largest amount", heroSize[0] > heroSize[1] && heroSize[0] > heroSize[2], heroSize);
+  { const r = await availableIsLargest(page); check("/: available is the largest money figure", r.ok, r); }
 
   // ------------------------------------------------------------- feed --
   check("feed shows public p_1 with visibility", (await attr(page, "activity-item-p_1", "data-visibility")) === "public");
@@ -139,7 +159,7 @@ async function run() {
   check("pay form keeps values after success",
     (await page.inputValue(T("pay-handle"))) === "bob" && (await page.inputValue(T("pay-amount"))) === "15.00" && (await page.inputValue(T("pay-visibility"))) === "private");
   await page.click(T("pay-submit"));
-  await page.waitForTimeout(600);
+  await page.waitForTimeout(600 * S);
   check("unchanged resubmit: balance falls once", (await text(page, "wallet-balance")) === "85.00 EUR");
   check("unchanged resubmit: feed has one payment", (await page.locator('[data-testid="activity-list"] > li').count()) === firstItems);
   check("unchanged resubmit: pay-error absent", (await count(page, "pay-error")) === 0);
@@ -154,7 +174,7 @@ async function run() {
   check("15.005 shows pay-error", await waitPresent(page, "pay-error"));
   await page.fill(T("pay-amount"), "abc");
   await page.click(T("pay-submit"));
-  await page.waitForTimeout(200);
+  await page.waitForTimeout(200 * S);
   check("invalid amounts send no request", posts.length === before, posts.slice(before));
 
   // refusal with competing client: bob pays ada 1.00 behind the page's back
@@ -177,6 +197,7 @@ async function run() {
   await page.click(T("pay-submit"));
   check("lost response shows pay-uncertain", await waitPresent(page, "pay-uncertain"));
   check("pay-uncertain has text", (await text(page, "pay-uncertain")).length > 0);
+  check("pay-uncertain uses the picked copy", (await text(page, "pay-uncertain")).includes("Payment result unknown. Retry with the same details."), await text(page, "pay-uncertain"));
   check("pay-error absent while uncertain", (await count(page, "pay-error")) === 0);
   await page.click(T("pay-submit"));
   check("retry clears pay-uncertain", await waitGone(page, "pay-uncertain"));
@@ -214,7 +235,7 @@ async function run() {
     await page.click(T("pay-submit"));
     check("PF-A2 'bob' -> '@bob' is a third payment", await waitText(page, "wallet-balance", P2(was - 300)));
     await page.click(T("pay-submit"));
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(500 * S);
     check("PF-A2 unchanged resubmit still replays", (await text(page, "wallet-balance")) === P2(was - 300));
     await page.fill(T("pay-note"), "lost");
     await page.fill(T("pay-amount"), "2.00");
@@ -223,13 +244,13 @@ async function run() {
 
   // latest refresh wins with out-of-order responses
   const beforeRace = Number(await attr(page, "wallet-balance", "data-amount"));
-  await faults([{ method: "GET", path: "/me", action: "delay", ms: 1500, times: 1 }]);
+  await faults([{ method: "GET", path: "/me", action: "delay", ms: 1500 * S, times: 1 }]);
   await page.click(T("wallet-refresh"));          // slow, will carry the old balance
-  await page.waitForTimeout(150);
+  await page.waitForTimeout(150 * S);
   await call("POST", "/payments", { to_handle: "ada", amount: 1000 }, bobTok, "k-ext-2");
   await page.click(T("wallet-refresh"));          // fast, carries old + 10.00
   check("later refresh shows the new balance", await waitText(page, "wallet-balance", P2(beforeRace + 1000)));
-  await page.waitForTimeout(1800);
+  await page.waitForTimeout(1800 * S);
   check("delayed earlier refresh does not overwrite", (await text(page, "wallet-balance")) === P2(beforeRace + 1000), await text(page, "wallet-balance"));
   check("refresh keeps the pay form", (await page.inputValue(T("pay-note"))) === "lost");
 
@@ -238,7 +259,7 @@ async function run() {
   await page.fill(T("request-amount"), "3");
   await page.fill(T("request-note"), "lunch");
   await page.click(T("request-submit"));
-  await page.waitForTimeout(400);
+  await page.waitForTimeout(400 * S);
   check("request form: no request-error on success", (await count(page, "request-error")) === 0);
   await page.fill(T("request-handle"), "nobody_here");
   await page.fill(T("request-amount"), "3");
@@ -255,11 +276,11 @@ async function run() {
   await page.fill(T("authorize-note"), "home hold");
   await page.selectOption(T("authorize-visibility"), "private");
   await page.click(T("authorize-submit"));
-  check("/ authorize: available refreshes down by 2.50", await page.waitForFunction(([s, v]) => document.querySelector(s)?.getAttribute("data-amount") === v, [T("wallet-available"), String(availHome - 250)], { timeout: 4000 }).then(() => true, () => false));
+  check("/ authorize: available refreshes down by 2.50", await page.waitForFunction(([s, v]) => document.querySelector(s)?.getAttribute("data-amount") === v, [T("wallet-available"), String(availHome - 250)], { timeout: 4000 * S }).then(() => true, () => false));
   check("/ authorize: total unchanged, held shown", (await attr(page, "wallet-balance", "data-amount")) === totalHome && (await count(page, "wallet-held")) === 1);
   check("/ authorize: authorize-error cleared", (await count(page, "authorize-error")) === 0);
   await page.click(T("authorize-submit"));
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(500 * S);
   check("/ authorize: unchanged resubmit holds once", (await attr(page, "wallet-available", "data-amount")) === String(availHome - 250));
   await page.fill(T("authorize-amount"), "99999");
   await page.click(T("authorize-submit"));
@@ -293,7 +314,7 @@ async function run() {
   await waitPresent(page, "request-pay-" + rq3);
   await page.selectOption(T("request-visibility-" + rq3), "private");
   await page.click(T("request-pay-" + rq3));
-  check("paying a request marks it paid", await page.waitForFunction((s) => document.querySelector(s)?.getAttribute("data-status") === "paid", T("request-item-" + rq3), { timeout: 4000 }).then(() => true, () => false));
+  check("paying a request marks it paid", await page.waitForFunction((s) => document.querySelector(s)?.getAttribute("data-status") === "paid", T("request-item-" + rq3), { timeout: 4000 * S }).then(() => true, () => false));
   check("paid request has no buttons", (await count(page, "request-pay-" + rq3)) === 0 && (await count(page, "request-decline-" + rq3)) === 0);
   const rq4 = (await call("POST", "/requests", { payer_handle: "ada", amount: 99999, note: "rent" }, bobTok, "k-rq4")).data.request_id;
   await page.reload();
@@ -302,10 +323,10 @@ async function run() {
   check("request larger than balance: request-error", await waitPresent(page, "request-error"));
   check("short request stays pending and payable", (await attr(page, "request-item-" + rq4, "data-status")) === "pending" && (await count(page, "request-pay-" + rq4)) === 1);
   await page.click(T("request-decline-" + rq4));
-  check("decline marks it declined", await page.waitForFunction((s) => document.querySelector(s)?.getAttribute("data-status") === "declined", T("request-item-" + rq4), { timeout: 4000 }).then(() => true, () => false));
+  check("decline marks it declined", await page.waitForFunction((s) => document.querySelector(s)?.getAttribute("data-status") === "declined", T("request-item-" + rq4), { timeout: 4000 * S }).then(() => true, () => false));
   check("request-error cleared after a success", (await count(page, "request-error")) === 0);
   await page.click(T("request-cancel-rq_2"));
-  check("cancel marks rq_2 cancelled", await page.waitForFunction((s) => document.querySelector(s)?.getAttribute("data-status") === "cancelled", T("request-item-rq_2"), { timeout: 4000 }).then(() => true, () => false));
+  check("cancel marks rq_2 cancelled", await page.waitForFunction((s) => document.querySelector(s)?.getAttribute("data-status") === "cancelled", T("request-item-rq_2"), { timeout: 4000 * S }).then(() => true, () => false));
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "desktop-requests.png"), fullPage: true });
 
   // ------------------------------------------------------------ split --
@@ -317,7 +338,7 @@ async function run() {
   check("preview sends nothing", !posts.some((p) => p === "/splits"));
   await page.fill(T("split-note"), "pizza");
   await page.click(T("split-submit"));
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(500 * S);
   check("split succeeded without split-error", (await count(page, "split-error")) === 0);
   const ada = await login("ada@example.com");
   const outgoing = (await call("GET", "/requests?direction=outgoing", undefined, ada)).data.requests.filter((r) => r.note === "pizza");
@@ -335,42 +356,47 @@ async function run() {
   check("seeded a_1 open, outgoing: void button, no capture", (await attr(page, "authorization-item-a_1", "data-status")) === "open"
     && (await count(page, "authorization-void-a_1")) === 1 && (await count(page, "authorization-capture-a_1")) === 0);
   check("authorization-amount exact", (await text(page, "authorization-amount-a_1")) === "20.00 EUR");
-  check("authorization-expires is RFC 3339", /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d([+-]\d\d:\d\d|Z)$/.test(await text(page, "authorization-expires-a_1")));
+  check("authorization-expires is RFC 3339", /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?([+-]\d\d:\d\d|Z)$/.test(await text(page, "authorization-expires-a_1")));
   check("authorization-captured absent while open", (await count(page, "authorization-captured-a_1")) === 0);
+  { const r = await availableIsLargest(page); check("/authorizations: available is the largest money figure", r.ok, r); }
   const avail0 = await attr(page, "wallet-available", "data-amount");
   await page.fill(T("authorize-handle"), "cy");
   await page.fill(T("authorize-amount"), "5");
   await page.fill(T("authorize-note"), "tickets");
   await page.click(T("authorize-submit"));
-  check("authorize lowers available by 5.00", await page.waitForFunction(([s, v]) => document.querySelector(s)?.getAttribute("data-amount") === v, [T("wallet-available"), String(Number(avail0) - 500)], { timeout: 4000 }).then(() => true, () => false));
+  {
+    const lowered = await page.waitForFunction(([s, v]) => document.querySelector(s)?.getAttribute("data-amount") === v, [T("wallet-available"), String(Number(avail0) - 500)], { timeout: 4000 * S }).then(() => true, () => false);
+    check("authorize lowers available by 5.00", lowered, lowered ? undefined : { avail0, now: await attr(page, "wallet-available", "data-amount"), messages: await page.locator("#authorize-messages").innerText() });
+  }
   const newAuth = await page.locator('[data-testid="authorization-list"] > li').first().getAttribute("data-testid");
   const newAuthId = newAuth.replace("authorization-item-", "");
   check("new hold first in the list, open", (await attr(page, newAuth, "data-status")) === "open");
   await page.click(T("authorization-void-" + newAuthId));
-  check("void marks it voided", await page.waitForFunction((s) => document.querySelector(s)?.getAttribute("data-status") === "voided", T(newAuth), { timeout: 4000 }).then(() => true, () => false));
-  check("void restores available", await page.waitForFunction(([s, v]) => document.querySelector(s)?.getAttribute("data-amount") === v, [T("wallet-available"), avail0], { timeout: 4000 }).then(() => true, () => false));
+  check("void marks it voided", await page.waitForFunction((s) => document.querySelector(s)?.getAttribute("data-status") === "voided", T(newAuth), { timeout: 4000 * S }).then(() => true, () => false));
+  check("void restores available", await page.waitForFunction(([s, v]) => document.querySelector(s)?.getAttribute("data-amount") === v, [T("wallet-available"), avail0], { timeout: 4000 * S }).then(() => true, () => false));
   await page.fill(T("authorize-amount"), "99999");
   await page.click(T("authorize-submit"));
   check("authorize beyond available shows authorize-error", await waitPresent(page, "authorize-error"));
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "desktop-authorizations.png"), fullPage: true });
 
   // bob collects part of a_1, then the rest
-  const bctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const bctx = await newCtx({ viewport: { width: 1280, height: 900 } });
   const bpage = await bctx.newPage();
   await signIn(bpage, "bob@example.com");
   await bpage.goto(BASE + "/authorizations");
   await waitPresent(bpage, "authorization-capture-a_1");
   check("receiver sees capture input pre-filled with remaining", (await bpage.inputValue(T("authorization-capture-amount-a_1"))) === "20.00");
   check("receiver has no void button", (await count(bpage, "authorization-void-a_1")) === 0);
+  check("'Keep the rest held' is unchecked by default", !(await bpage.isChecked(T("authorization-keep-open-a_1"))));
   await bpage.fill(T("authorization-capture-amount-a_1"), "25.00");
   await bpage.click(T("authorization-capture-a_1"));
   check("capture over remainder shows authorization-error", await waitPresent(bpage, "authorization-error"));
   await bpage.fill(T("authorization-capture-amount-a_1"), "7.00");
   await bpage.check(T("authorization-keep-open-a_1"));
   await bpage.click(T("authorization-capture-a_1"));
-  check("partial capture keeps it open with 13.00 pre-filled", await bpage.waitForFunction((s) => document.querySelector(s)?.value === "13.00", T("authorization-capture-amount-a_1"), { timeout: 4000 }).then(() => true, () => false));
+  check("partial capture keeps it open with 13.00 pre-filled", await bpage.waitForFunction((s) => document.querySelector(s)?.value === "13.00", T("authorization-capture-amount-a_1"), { timeout: 4000 * S }).then(() => true, () => false));
   await bpage.click(T("authorization-capture-a_1"));
-  check("final capture marks it captured", await bpage.waitForFunction((s) => document.querySelector(s)?.getAttribute("data-status") === "captured", T("authorization-item-a_1"), { timeout: 4000 }).then(() => true, () => false));
+  check("final capture marks it captured", await bpage.waitForFunction((s) => document.querySelector(s)?.getAttribute("data-status") === "captured", T("authorization-item-a_1"), { timeout: 4000 * S }).then(() => true, () => false));
   check("authorization-captured shows 20.00 EUR", (await text(bpage, "authorization-captured-a_1")) === "20.00 EUR");
   check("captured hold has no capture button", (await count(bpage, "authorization-capture-a_1")) === 0);
   await page.goto(BASE + "/");
@@ -395,7 +421,7 @@ async function run() {
   check("after import: balance refreshed, moved once", await waitText(page, "wallet-balance", P2(totalBefore - 100)));
 
   // ------------------------------------------------------- signup, logout --
-  const cctx = await browser.newContext({ viewport: { width: 375, height: 800 } });
+  const cctx = await newCtx({ viewport: { width: 375, height: 800 } });
   const cpage = await cctx.newPage();
   await cpage.goto(BASE + "/signup");
   await cpage.fill(T("signup-email"), "x@example.com");
@@ -415,7 +441,7 @@ async function run() {
   // ------------------------------------------------------------ 375 px --
   for (const route of ["/", "/requests", "/split", "/authorizations"]) {
     await cpage.goto(BASE + route);
-    await cpage.waitForTimeout(400);
+    await cpage.waitForTimeout(400 * S);
     check("375px " + route + ": no horizontal scroll", await noHorizontalScroll(cpage));
     check("375px " + route + ": current-user visible", await cpage.locator(T("current-user")).isVisible());
     if (SHOTS) await cpage.screenshot({ path: path.join(SHOTS, "m375" + (route === "/" ? "-wallet" : route.replace("/", "-")) + ".png"), fullPage: true });
@@ -431,14 +457,14 @@ async function run() {
   for (const route of ["/requests", "/split", "/authorizations", "/login", "/signup"]) {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(BASE + route);
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(300 * S);
     check("desktop " + route + ": no horizontal scroll", await noHorizontalScroll(page));
   }
 
   // empty states for a fresh user
   await call("POST", "/_test/reset", { currency: "JPY", minor_units: 0, users: [
     { id: "u_z", email: "z@example.com", password: "correct horse", display_name: "Zed", handle: "zed", balance: 1200 }] });
-  const zctx = await browser.newContext({ viewport: { width: 375, height: 800 } });
+  const zctx = await newCtx({ viewport: { width: 375, height: 800 } });
   const zpage = await zctx.newPage();
   await signIn(zpage, "z@example.com");
   check("JPY: wallet-balance 1200 JPY", (await text(zpage, "wallet-balance")) === "1200 JPY");
@@ -455,12 +481,13 @@ async function run() {
     await call("POST", "/_test/reset", { currency: "EUR", minor_units: 2, users: [
       { id: "u_big", email: "big@example.com", password: "correct horse", display_name: "Big", handle: "big", balance }] });
     for (const width of [375, 1280]) {
-      const bctx2 = await browser.newContext({ viewport: { width, height: 800 } });
-      bctx2.setDefaultTimeout(10000);
+      const bctx2 = await newCtx({ viewport: { width, height: 800 } });
+      bctx2.setDefaultTimeout(10000 * S);
       const bp = await bctx2.newPage();
       await signIn(bp, "big@example.com");
       check(width + "px balance " + balance + ": wallet-balance exact", (await text(bp, "wallet-balance")) === expected && (await attr(bp, "wallet-balance", "data-amount")) === String(balance));
       check(width + "px balance " + balance + ": wallet-available exact", (await text(bp, "wallet-available")) === expected);
+      { const r = await availableIsLargest(bp); check(width + "px balance " + balance + ": available still the largest figure", r.ok, r); }
       check(width + "px balance " + balance + ": / has no horizontal scroll", await noHorizontalScroll(bp),
         await bp.evaluate(() => document.documentElement.scrollWidth));
       await bp.goto(BASE + "/authorizations");
