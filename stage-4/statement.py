@@ -5,12 +5,16 @@ the W-9 writes) so reads and historical-overdraft checks cannot diverge. Both
 functions run inside the server's read transaction, under the write lock, with
 the handler's single clock reading as "now" (D-16, 9015).
 
-Snapshots are kept in this process until reset (ledger 2084-2094): each one is
-bound to its owner and to the reset generation it was taken in, and holds the
-complete, already computed window, so paging never recomputes anything.
+Snapshots live in the statement_snapshots table until reset (ledger 2084-2094,
+D-27): each row is bound to its owner and to the reset generation it was taken in,
+and holds the complete, already computed window as JSON, so paging never
+recomputes anything. The rows are written in the caller's transaction.
+export_snapshots/import_snapshots carry them through /_test/export and import
+(3046); imported tokens bind to the importing service's generation.
 """
+import json
 import secrets
-import threading
+from decimal import Decimal
 from urllib.parse import parse_qs, urlsplit
 
 import history
@@ -19,8 +23,6 @@ from core import APIError, get_meta, validation
 TEMPORAL = ("as_of", "known_at")
 WINDOW = ("from", "to", "known_at")
 
-_snapshots = {}
-_snapshots_lock = threading.Lock()
 
 
 def _query(path):
@@ -87,11 +89,17 @@ def statement(handler, db, user):
 
 
 def _lookup(db, user, token):
-    with _snapshots_lock:
-        snapshot = _snapshots.get(token)
-    if snapshot is None or snapshot["owner"] != user["id"] or snapshot["generation"] != _generation(db):
+    row = db.execute("SELECT * FROM statement_snapshots WHERE token = ?", (token,)).fetchone()
+    if row is None or row["user_id"] != user["id"] or row["generation"] != _generation(db):
         raise APIError(404, "not_found")
-    return snapshot
+    frozen = json.loads(row["snapshot_json"])
+    return {"owner": row["user_id"], "generation": row["generation"], "head": frozen["head"], "entries": frozen["entries"], "token": token}
+
+
+def _store(db, snapshot):
+    db.execute("INSERT INTO statement_snapshots(token, user_id, generation, snapshot_json) VALUES(?, ?, ?, ?)",
+               (snapshot["token"], snapshot["owner"], snapshot["generation"],
+                json.dumps({"head": snapshot["head"], "entries": snapshot["entries"]}, ensure_ascii=False, separators=(",", ":"))))
 
 
 def _take(handler, db, user, query):
@@ -118,10 +126,8 @@ def _take(handler, db, user, query):
     generation = _generation(db)
     token = secrets.token_urlsafe()
     snapshot = {"owner": user_id, "generation": generation, "head": head, "entries": entries, "token": token}
-    with _snapshots_lock:
-        for stale in [key for key, value in _snapshots.items() if value["generation"] != generation]:
-            del _snapshots[stale]
-        _snapshots[token] = snapshot
+    db.execute("DELETE FROM statement_snapshots WHERE generation != ?", (generation,))
+    _store(db, snapshot)
     return snapshot
 
 
@@ -132,3 +138,84 @@ def _page(snapshot, limit, offset):
     result["has_more"] = offset + limit < len(entries)
     result["snapshot"] = snapshot["token"]
     return result
+
+
+HEAD_NUMBERS = ("opening_balance", "closing_balance")
+HEAD_TEXTS = ("from", "to", "known_at")
+
+
+def _plain(value):
+    """Imported JSON numbers arrive as Decimal; frozen results hold only integers."""
+    if isinstance(value, bool) or value is None or isinstance(value, (str, int)):
+        return value
+    if isinstance(value, Decimal):
+        if not value.is_finite() or value != value.to_integral_value():
+            validation("Invalid snapshot number")
+        return int(value)
+    if isinstance(value, list):
+        return [_plain(item) for item in value]
+    if isinstance(value, dict) and all(isinstance(key, str) for key in value):
+        return {key: _plain(item) for key, item in value.items()}
+    validation("Invalid snapshot value")
+
+
+def _integer(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _imported(item):
+    """One exported snapshot, checked and normalized; the result is fully self-consistent."""
+    if not isinstance(item, dict):
+        validation("Invalid snapshot")
+    token, user_id, result = item.get("token"), item.get("user_id"), _plain(item.get("result"))
+    if not isinstance(token, str) or not token or not isinstance(user_id, str) or not user_id or not isinstance(result, dict):
+        validation("Invalid snapshot")
+    head = {}
+    for name in HEAD_NUMBERS:
+        if not _integer(result.get(name)):
+            validation("Invalid snapshot balance")
+        head[name] = result[name]
+    for name in HEAD_TEXTS:
+        if name in result:
+            if not isinstance(result[name], str):
+                validation("Invalid snapshot window")
+            head[name] = result[name]
+    entries = result.get("entries")
+    if not isinstance(entries, list) or not all(
+            isinstance(entry, dict) and isinstance(entry.get("payment"), dict) and _integer(entry.get("delta")) and _integer(entry.get("balance_after"))
+            for entry in entries):
+        validation("Invalid snapshot entries")
+    if head["opening_balance"] + sum(entry["delta"] for entry in entries) != head["closing_balance"]:
+        validation("Snapshot balances do not add up")
+    return token, user_id, head, entries
+
+
+def export_snapshots(db):
+    """Every live snapshot (current generation) as JSON-safe dicts, sorted by token."""
+    rows = db.execute("SELECT * FROM statement_snapshots WHERE generation = ? ORDER BY token", (_generation(db),)).fetchall()
+    exported = []
+    for row in rows:
+        frozen = json.loads(row["snapshot_json"])
+        exported.append({"token": row["token"], "user_id": row["user_id"], "result": dict(frozen["head"], entries=frozen["entries"])})
+    return exported
+
+
+def import_snapshots(db, items):
+    """Replace the store with exported snapshots bound to this service's generation.
+    None means the export carried no snapshots. Everything is validated before the
+    store changes, so a rejected import leaves the existing tokens in place; the rows are written
+    in the caller's import transaction."""
+    if items is None:
+        items = []
+    if not isinstance(items, list):
+        validation("Invalid snapshots")
+    generation = _generation(db)
+    restored = {}
+    for item in items:
+        token, user_id, head, entries = _imported(item)
+        if token in restored:
+            validation("Duplicate snapshot token")
+        restored[token] = {"owner": user_id, "generation": generation, "head": head, "entries": entries, "token": token}
+    db.execute("DELETE FROM statement_snapshots")
+    for snapshot in restored.values():
+        _store(db, snapshot)
