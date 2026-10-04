@@ -266,3 +266,18 @@ def test_statement_money_movements_only(api, h):
     caps = [e for e in st["entries"] if e["payment"]["payment_id"] == cap["payment_id"]]
     assert len(caps) == 1 and caps[0]["payment"]["authorization_id"] == a["authorization_id"]
     assert caps[0]["delta"] == -500 and st["closing_balance"] == 9500
+
+
+def test_statement_window_order(api, h):
+    # ledger: 2074, D-16, D-20
+    assert is_error(h["ada"].get("/statement", params={"from": T3, "to": T2}), 422, "validation_failed")
+    assert is_error(h["ada"].get("/statement", params={"from": shift(T2, 0.000001), "to": T2}),
+                    422, "validation_failed")
+    fut = now_iso(3600)
+    st = stmt(h["ada"], **{"from": fut})  # to omitted, from in the future: valid, empty (D-20 amended)
+    assert st["entries"] == [] and st["has_more"] is False
+    assert st["opening_balance"] == st["closing_balance"] == 10000
+    st = stmt(h["ada"], **{"from": fut, "to": now_iso(7200)})
+    assert st["entries"] == [] and st["opening_balance"] == st["closing_balance"] == 10000
+    st = stmt(h["ada"], to=shift(T1, -1))  # from omitted: the window starts at the earliest
+    assert st["entries"] == [] and st["opening_balance"] == st["closing_balance"] == 11100
