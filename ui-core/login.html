@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#136C63">
+<title>Sign in · Pocketful</title>
+<link rel="stylesheet" href="/ui/theme.css">
+<script src="/ui/pocketful-core.js" defer></script>
+<script src="/ui/app.js" defer></script>
+</head>
+<body data-page="login">
+<a class="skip" href="#main">Skip to content</a>
+<header id="shell" class="topbar" hidden><div class="shell"><span class="brand">Pocketful</span></div></header>
+<main id="main" class="page page-login">
+  <div class="auth-card">
+    <div class="auth-brand"><span class="wordmark">Pocketful</span></div>
+    <form class="auth-form form" novalidate>
+      <h1>Sign in</h1>
+      <div class="field">
+        <label for="login-email">Email</label>
+        <input id="login-email" data-testid="login-email" type="email" autocomplete="email" autocapitalize="none" placeholder="you@example.com">
+      </div>
+      <div class="field">
+        <label for="login-password">Password</label>
+        <div class="password">
+          <input id="login-password" data-testid="login-password" type="password" autocomplete="current-password" placeholder="Your password">
+          <button type="button" class="password-toggle" data-password-toggle="login-password" aria-label="Show password" aria-pressed="false"></button>
+        </div>
+      </div>
+      <button type="submit" class="button button-primary button-block" data-testid="login-submit">Sign in</button>
+      <div id="auth-messages" class="messages" aria-live="polite"></div>
+      <p class="switch">Don't have an account? <a href="/signup">Create an account</a></p>
+    </form>
+  </div>
+</main>
+</body>
+</html>

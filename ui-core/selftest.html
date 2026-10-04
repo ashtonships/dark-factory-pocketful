@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pocketful client core — self-test</title>
+<style>
+  body { font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; margin: 24px; color: #1d2433; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  #summary { font-weight: 600; margin: 8px 0 16px; }
+  #summary.pass { color: #106b3a; } #summary.fail { color: #a32020; }
+  table { border-collapse: collapse; width: 100%; max-width: 1100px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #e3e6ec; vertical-align: top; }
+  th { font-size: 13px; color: #5b6475; }
+  td.ref { color: #5b6475; font-size: 13px; }
+  .ok { color: #106b3a; font-weight: 600; } .bad { color: #a32020; font-weight: 600; }
+  .err { color: #a32020; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>Pocketful client core — self-test</h1>
+<div id="summary" data-testid="selftest-summary">Running…</div>
+<table>
+  <thead><tr><th>Result</th><th>Group</th><th>Case</th><th>Requirement</th></tr></thead>
+  <tbody id="rows"></tbody>
+</table>
+<script src="pocketful-core.js"></script>
+<script src="selftest.js"></script>
+<script>
+  PocketfulSelftest.runAll().then(function (results) {
+    var rows = document.getElementById("rows");
+    var failed = 0;
+    results.forEach(function (r) {
+      if (!r.pass) failed++;
+      var tr = document.createElement("tr");
+      tr.setAttribute("data-testid", "selftest-case");
+      tr.setAttribute("data-pass", String(r.pass));
+      [[r.pass ? "PASS" : "FAIL", r.pass ? "ok" : "bad"], [r.group], [r.name, null, r.error], [r.ref, "ref"]].forEach(function (cell) {
+        var td = document.createElement("td");
+        td.textContent = cell[0];
+        if (cell[1]) td.className = cell[1];
+        if (cell[2]) { var d = document.createElement("div"); d.className = "err"; d.textContent = cell[2]; td.appendChild(d); }
+        tr.appendChild(td);
+      });
+      rows.appendChild(tr);
+    });
+    var s = document.getElementById("summary");
+    s.textContent = (results.length - failed) + "/" + results.length + " passed" + (failed ? " — " + failed + " failed" : "");
+    s.className = failed ? "fail" : "pass";
+    s.setAttribute("data-passed", String(results.length - failed));
+    s.setAttribute("data-total", String(results.length));
+  });
+</script>
+</body>
+</html>

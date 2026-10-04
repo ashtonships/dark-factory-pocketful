@@ -15,10 +15,6 @@ from core import (
     reset, timestamp, valid_email, validation, visibility, write_transaction,
 )
 from state import export_state, import_state
-from history_store import baseline, original
-import statement
-from corrections import correct, revisions
-from history import instant, parse_instant
 from holds import STATUSES, authorization_body, capture_value, clock, effective_status, expiry, lifetime, record_event, wallet_funds
 
 
@@ -26,7 +22,6 @@ MAX_BODY_BYTES = 8 * 1024 * 1024
 MAX_OFFSET = 2**63 - 1
 REQUEST_ACTION = re.compile(r"^/requests/([^/]+)/(pay|decline|cancel)$")
 AUTHORIZATION_ACTION = re.compile(r"^/authorizations/([^/]+)/(capture|void)$")
-PAYMENT_HISTORY = re.compile(r"^/payments/([^/]+)/(corrections|revisions)$")
 UI_ROOT = Path(__file__).resolve().parent / "ui"
 PAGES = {"/": "index.html", "/requests": "requests.html", "/split": "split.html", "/signup": "signup.html", "/login": "login.html", "/authorizations": "authorizations.html"}
 ASSETS = {"/ui/pocketful-core.js": ("pocketful-core.js", "text/javascript; charset=utf-8"), "/ui/app.js": ("app.js", "text/javascript; charset=utf-8"), "/ui/theme.css": ("theme.css", "text/css; charset=utf-8")}
@@ -38,7 +33,6 @@ ROUTES = {
     "/auth/signup": {"POST"},
     "/auth/login": {"POST"},
     "/me": {"GET"},
-    "/statement": {"GET"},
     "/payments": {"POST"},
     "/requests": {"GET", "POST"},
     "/splits": {"POST"},
@@ -71,7 +65,7 @@ def json_body(data):
 
 class PocketfulHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
-    server_version = "Pocketful/3"
+    server_version = "Pocketful/2"
 
     def serve_ui(self, path):
         asset = ASSETS.get(path)
@@ -192,9 +186,6 @@ class PocketfulHandler(BaseHTTPRequestHandler):
             return ROUTES[path]
         if REQUEST_ACTION.fullmatch(path) or AUTHORIZATION_ACTION.fullmatch(path):
             return {"POST"}
-        history_action = PAYMENT_HISTORY.fullmatch(path)
-        if history_action:
-            return {"GET"} if history_action.group(2) == "revisions" else {"POST"}
         if path in PAGES or path in ASSETS:
             return {"GET"}
         return None
@@ -241,7 +232,6 @@ class PocketfulHandler(BaseHTTPRequestHandler):
             else:
                 self.now = clock()
                 result = operation(db, user, body)
-                db.execute("UPDATE meta SET value=? WHERE key='clock_high_water'", (self.now.isoformat(),))
                 db.execute(
                     "INSERT INTO idempotency VALUES(?, ?, ?, ?, ?, ?)",
                     (user["id"], key, self.command, path, body_json, json.dumps(result, ensure_ascii=False, separators=(",", ":"))),
@@ -316,11 +306,7 @@ class PocketfulHandler(BaseHTTPRequestHandler):
                         try:
                             user = self.authenticate(db)
                             self.now = clock()
-                            if path == "/me" and statement.temporal(self.path):
-                                result = statement.me(self, db, user)
-                            elif path == "/statement":
-                                result = statement.statement(self, db, user)
-                            elif path == "/me":
+                            if path == "/me":
                                 meta = get_meta(db)
                                 result = {
                                     "user_id": user["id"], "display_name": user["display_name"],
@@ -334,8 +320,6 @@ class PocketfulHandler(BaseHTTPRequestHandler):
                                 result = self.activity(db, user)
                             elif path == "/authorizations":
                                 result = self.list_authorizations(db, user)
-                            elif PAYMENT_HISTORY.fullmatch(path):
-                                result = revisions(db,user,PAYMENT_HISTORY.fullmatch(path).group(1))
                             else:
                                 raise APIError(404, "not_found")
                             db.execute("COMMIT")
@@ -362,10 +346,6 @@ class PocketfulHandler(BaseHTTPRequestHandler):
                     self.transition_request(db, user, action.group(1), action.group(2))
                     return
                 body = json_body(raw_body)
-                history_action = PAYMENT_HISTORY.fullmatch(path)
-                if history_action:
-                    self.idempotent(db,user,path,body,lambda db,user,body:correct(self,db,user,body,history_action.group(1)))
-                    return
                 if path == "/authorizations":
                     self.idempotent(db, user, path, body, self.create_authorization)
                     return
@@ -421,7 +401,6 @@ class PocketfulHandler(BaseHTTPRequestHandler):
             token = new_token()
             db.execute("INSERT INTO users VALUES(?, ?, ?, ?, ?, 0, ?, ?)", (user_id, email, email_key(email), display_name, handle, salt, digest))
             db.execute("INSERT INTO tokens VALUES(?, ?)", (token, user_id))
-            db.execute("INSERT INTO wallet_openings VALUES(?,0)", (user_id,))
         self.send_json(201, {"user_id": user_id, "display_name": display_name, "token": token})
 
     def login(self, db, body):
@@ -463,9 +442,8 @@ class PocketfulHandler(BaseHTTPRequestHandler):
         payment_id = new_id("p_")
         db.execute(
             "INSERT INTO payments(id, from_user_id, to_user_id, amount, note, visibility, request_id, settlement_id, created_at) VALUES(?, ?, ?, ?, ?, ?, NULL, NULL, ?)",
-            (payment_id, user["id"], target["id"], value, payment_note, payment_visibility, self.now.isoformat()),
+            (payment_id, user["id"], target["id"], value, payment_note, payment_visibility, timestamp()),
         )
-        original(db,payment_id)
         row = db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone()
         return payment_body(db, row)
 
@@ -483,7 +461,7 @@ class PocketfulHandler(BaseHTTPRequestHandler):
         request_id = new_id("rq_")
         db.execute(
             "INSERT INTO requests(id, requester_id, payer_id, amount, note, status, payment_id, created_at) VALUES(?, ?, ?, ?, ?, 'pending', NULL, ?)",
-            (request_id, user["id"], payer["id"], value, request_note, self.now.isoformat()),
+            (request_id, user["id"], payer["id"], value, request_note, timestamp()),
         )
         row = db.execute("SELECT * FROM requests WHERE id = ?", (request_id,)).fetchone()
         return request_body(db, row)
@@ -509,9 +487,8 @@ class PocketfulHandler(BaseHTTPRequestHandler):
         payment_id = new_id("p_")
         db.execute(
             "INSERT INTO payments(id, from_user_id, to_user_id, amount, note, visibility, request_id, settlement_id, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, NULL, ?)",
-            (payment_id, user["id"], receiver["id"], request["amount"], request["note"], payment_visibility, request_id, self.now.isoformat()),
+            (payment_id, user["id"], receiver["id"], request["amount"], request["note"], payment_visibility, request_id, timestamp()),
         )
-        original(db,payment_id)
         db.execute("UPDATE requests SET status = 'paid', payment_id = ? WHERE id = ?", (payment_id, request_id))
         row = db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone()
         return payment_body(db, row)
@@ -555,7 +532,7 @@ class PocketfulHandler(BaseHTTPRequestHandler):
                 raise APIError(404, "not_found")
             targets.append(target)
         quotient, remainder = divmod(value, len(participants))
-        created_at = self.now.isoformat()
+        created_at = timestamp()
         shares = []
         requests = []
         for index, target in enumerate(targets):
@@ -616,7 +593,7 @@ class PocketfulHandler(BaseHTTPRequestHandler):
         # Assign net balances directly: no transient overdrafts even for cycles.
         db.executemany("UPDATE users SET balance = ? WHERE id = ?", ((balance, user_id) for user_id, balance in final_balances.items()))
         settlement_id = new_id("st_")
-        committed_at = self.now.isoformat()
+        committed_at = timestamp()
         db.execute("INSERT INTO settlements(id, operator_id, committed_at) VALUES(?, ?, ?)", (settlement_id, user["id"], committed_at))
         payments = []
         for source_id, target_id, value, transfer_note, transfer_visibility in prepared:
@@ -625,7 +602,6 @@ class PocketfulHandler(BaseHTTPRequestHandler):
                 "INSERT INTO payments(id, from_user_id, to_user_id, amount, note, visibility, request_id, settlement_id, created_at) VALUES(?, ?, ?, ?, ?, ?, NULL, ?, ?)",
                 (payment_id, source_id, target_id, value, transfer_note, transfer_visibility, settlement_id, committed_at),
             )
-            original(db,payment_id)
             payments.append(payment_body(db, db.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone()))
         return {"settlement_id": settlement_id, "committed_at": committed_at, "payments": payments}
 
@@ -651,7 +627,6 @@ class PocketfulHandler(BaseHTTPRequestHandler):
             "INSERT INTO authorizations(id, from_user_id, to_user_id, amount, captured_amount, note, visibility, status, expires_at, payment_id, payment_ids_json, created_at) VALUES(?, ?, ?, ?, 0, ?, ?, 'open', ?, NULL, '[]', ?)",
             (authorization_id, user["id"], target["id"], value, hold_note, hold_visibility, expires_at, created_at),
         )
-        baseline(db,authorization_id)
         return authorization_body(db, db.execute("SELECT * FROM authorizations WHERE id = ?", (authorization_id,)).fetchone(), self.now)
 
     def capture_authorization(self, db, user, body, authorization_id):
@@ -666,7 +641,7 @@ class PocketfulHandler(BaseHTTPRequestHandler):
             raise APIError(403, "forbidden")
         if hold["status"] != "open":
             raise APIError(409, "authorization_not_open")
-        if parse_instant(hold["expires_at"]) <= instant(self.now):
+        if expiry(hold["expires_at"]) <= self.now:
             raise APIError(409, "authorization_expired")
         remainder = hold["amount"] - hold["captured_amount"]
         if requested is not None and requested > remainder:
@@ -681,7 +656,6 @@ class PocketfulHandler(BaseHTTPRequestHandler):
             "INSERT INTO payments(id, from_user_id, to_user_id, amount, note, visibility, request_id, settlement_id, authorization_id, created_at) VALUES(?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)",
             (payment_id, hold["from_user_id"], user["id"], value, hold["note"], hold["visibility"], authorization_id, self.now.isoformat()),
         )
-        original(db,payment_id)
         payment_ids = json.loads(hold["payment_ids_json"])
         payment_ids.append(payment_id)
         status = "captured" if final or value == remainder else "open"
@@ -721,7 +695,7 @@ class PocketfulHandler(BaseHTTPRequestHandler):
             clause, parties = "from_user_id = ?", (user["id"],)
         else:
             clause, parties = "(from_user_id = ? OR to_user_id = ?)", (user["id"], user["id"])
-        rows = sorted(db.execute("SELECT * FROM authorizations WHERE " + clause, parties).fetchall(), key=lambda row:(parse_instant(row["created_at"]),row["seq"]),reverse=True)
+        rows = db.execute("SELECT * FROM authorizations WHERE " + clause + " ORDER BY created_at DESC, seq DESC", parties)
         visible = [row for row in rows if status is None or effective_status(row, self.now) == status]
         page = visible[offset:offset + limit]
         return {"authorizations": [authorization_body(db, row, self.now) for row in page], "has_more": len(visible) > offset + limit}
@@ -757,10 +731,9 @@ class PocketfulHandler(BaseHTTPRequestHandler):
     def activity(self, db, user):
         _, limit, offset = self.pagination()
         rows = db.execute(
-            "SELECT * FROM payments WHERE visibility = 'public' OR from_user_id = ? OR to_user_id = ?",
-            (user["id"], user["id"]),
+            "SELECT * FROM payments WHERE visibility = 'public' OR from_user_id = ? OR to_user_id = ? ORDER BY created_at DESC, seq DESC LIMIT ? OFFSET ?",
+            (user["id"], user["id"], limit + 1, offset),
         ).fetchall()
-        rows = sorted(rows,key=lambda row:(parse_instant(row["created_at"]),row["seq"]),reverse=True)[offset:offset+limit+1]
         return {"payments": [payment_body(db, row) for row in rows[:limit]], "has_more": len(rows) > limit}
 
     def do_GET(self):
