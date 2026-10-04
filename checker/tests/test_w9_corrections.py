@@ -100,6 +100,7 @@ def test_revisions_access(api, h):
 
 def test_correction_decrease_debits_receiver(api, h):
     # ledger: 2046, 2052, 2053, 2058, 2059, 2054, 2065, 2066
+    feed_before = h["cy"].get("/activity", {"limit": 200}).json["payments"]
     r = correct(h["ada"], "p_a", 400, T1, reason="overpaid")
     assert r.status == 201, r
     c = r.json
@@ -112,7 +113,7 @@ def test_correction_decrease_debits_receiver(api, h):
     feed = [p for p in h["cy"].get("/activity", {"limit": 200}).json["payments"] if p["payment_id"] == "p_a"]
     assert len(feed) == 1 and feed[0]["amount"] == 1000 and feed[0]["visibility"] == "public"
     assert feed[0]["from_handle"] == "ada" and feed[0]["to_handle"] == "bob"
-    assert len(h["cy"].get("/activity", {"limit": 200}).json["payments"]) == 3  # no new feed item
+    assert h["cy"].get("/activity", {"limit": 200}).json["payments"] == feed_before  # no new or changed feed item
 
 
 def test_correction_increase_debits_sender_and_zero_reverses(api, h):
