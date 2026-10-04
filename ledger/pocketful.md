@@ -59,6 +59,11 @@ quotes” (the quote is what `tools/spec_coverage.py` matches). `N/A:` lines are
 - **D-18 Recorded time**: `recorded_at` uses microsecond precision and strictly increases per payment (bumped by
   1 µs when the clock has not advanced), so revision order and known_at selection are unambiguous.
 
+- **D-19 Legacy holds on upgrade**: a stage-3 import of an earlier export that carries no event time for a closed
+  hold treats it like a seeded closed hold (2113: "seeded closed holds need not reconstruct a prior lifecycle")
+  instead of inventing event times. To keep that case rare, stage 2 records the event time of every capture, void
+  and expiry internally and includes it in its export. The time is not exposed in the stage-2 API.
+
 ## Work items (stage 1)
 
 | Item | Seat | Entries | Scope |
