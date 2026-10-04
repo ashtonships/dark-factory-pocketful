@@ -64,8 +64,10 @@ quotes” (the quote is what `tools/spec_coverage.py` matches). `N/A:` lines are
   instead of inventing event times. To keep that case rare, stage 2 records the event time of every capture, void
   and expiry internally and includes it in its export. The time is not exposed in the stage-2 API.
 
-- **D-20 Statement window order**: `from` later than `to` is 422 `validation_failed` (an out-of-range value under
-  §5); `from` equal to `to` is a valid, empty window.
+- **D-20 Statement window order**: an explicit `from` later than an explicit `to` is 422 `validation_failed` (an
+  out-of-range value under §5); `from` equal to `to` is a valid, empty window. When `to` is omitted and `from` lies
+  in the future, the request is valid and the window is empty (opening = closing = the balance immediately before
+  `from`). Reason: the caller supplied no inverted range, and the spec allows future query instants.
 
 ## Work items (stage 1)
 
