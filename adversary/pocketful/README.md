@@ -34,6 +34,31 @@ The sum/nonnegativity assertions cover every completed attack and each sequentia
 Independent `/me` calls are not falsely treated as one atomic multi-wallet read during concurrent writes.
 Export contents are opaque; no private storage schema is assumed.
 
+The accepted `57cc82e` Docker runner and exact Checker mutation runner are:
+
+```sh
+/Users/ashton/DarkFactory/tools/with-check-lock python3.12 -B adversary/pocketful/run_stage1_docker.py --report /Volumes/SSD/overflow/darkfactory/pf-s1-57cc82e-attacks.json
+/Users/ashton/DarkFactory/tools/with-check-lock python3.12 -B adversary/pocketful/measure_stage1.py --report /Volumes/SSD/overflow/darkfactory/pf-s1-57cc82e-mutants-exact-summary.json
+```
+
+The first archives only the pinned stage-1 tree, limits each disposable service to 2 CPUs/2 GiB,
+and puts services on an internal-only Docker bridge. Disposable fixed-destination TCP relays expose
+loopback client ports because Docker Desktop does not publish ports on the internal bridge. Relays
+are outside the product CPU envelope and cannot proxy to arbitrary destinations. It runs items 1–4
+and three 50-write-burst/reset latency probes without weakening the API's 5/10-second budgets.
+
+The October 3 attempts did not reach retained tests or reset measurements: a Docker network-connect
+control call timed out at load 229–297, and the retry's Docker build timed out at load 471–349.
+These are infrastructure/setup failures, not product findings or passing attacks. The exact full
+Checker mutation command also failed its unmodified Docker-build baseline at load 232–132:
+seed 1, requested 20, generated 0, valid 0, catch rate null; no survivors were scored. This is not
+a 0% catch rate. The raw baseline evidence is private under `~/.cache/pf-adversary-mutants/`;
+the public summary is on the SSD. Future per-copy JUnit output is kept outside the mutation
+tool's disposable copy tree so timeout-only kills can be distinguished from semantic detection.
+Checker attributes the control-plane stalls to host contention and the Docker VM's 3.8 GiB memory,
+shared with unrelated services; that diagnosis is peer evidence, not an independently measured
+normal-load result. No claim is made that reset exceeds its 10-second budget at normal load.
+
 For a bounded source-review reproduction without using another seat's tests:
 
 ```sh
