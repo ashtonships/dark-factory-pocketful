@@ -277,7 +277,7 @@
     if (text) {
       try { data = JSON.parse(text); parsed = true; } catch (e) { data = null; }
     }
-    if (status >= 200 && status < 300) {
+    if (status >= 200 && status <= 299) {
       // A success we cannot read is not a confirmed outcome: an empty, null,
       // non-JSON or non-object body, or one missing the expected field, leaves
       // the write's result unknown.
