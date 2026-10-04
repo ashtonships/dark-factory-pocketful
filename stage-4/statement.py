@@ -92,14 +92,15 @@ def _lookup(db, user, token):
     row = db.execute("SELECT * FROM statement_snapshots WHERE token = ?", (token,)).fetchone()
     if row is None or row["user_id"] != user["id"] or row["generation"] != _generation(db):
         raise APIError(404, "not_found")
-    frozen = json.loads(row["snapshot_json"])
-    return {"owner": row["user_id"], "generation": row["generation"], "head": frozen["head"], "entries": frozen["entries"], "token": token}
+    head = json.loads(row["snapshot_json"])
+    entries = head.pop("entries")
+    return {"owner": row["user_id"], "generation": row["generation"], "head": head, "entries": entries, "token": token}
 
 
 def _store(db, snapshot):
     db.execute("INSERT INTO statement_snapshots(token, user_id, generation, snapshot_json) VALUES(?, ?, ?, ?)",
                (snapshot["token"], snapshot["owner"], snapshot["generation"],
-                json.dumps({"head": snapshot["head"], "entries": snapshot["entries"]}, ensure_ascii=False, separators=(",", ":"))))
+                json.dumps(dict(snapshot["head"], entries=snapshot["entries"]), ensure_ascii=False, separators=(",", ":"))))
 
 
 def _take(handler, db, user, query):
@@ -195,27 +196,36 @@ def export_snapshots(db):
     rows = db.execute("SELECT * FROM statement_snapshots WHERE generation = ? ORDER BY token", (_generation(db),)).fetchall()
     exported = []
     for row in rows:
-        frozen = json.loads(row["snapshot_json"])
-        exported.append({"token": row["token"], "user_id": row["user_id"], "result": dict(frozen["head"], entries=frozen["entries"])})
+        exported.append({"token": row["token"], "user_id": row["user_id"], "result": json.loads(row["snapshot_json"])})
     return exported
 
 
-def import_snapshots(db, items):
-    """Replace the store with exported snapshots bound to this service's generation.
-    None means the export carried no snapshots. Everything is validated before the
-    store changes, so a rejected import leaves the existing tokens in place; the rows are written
-    in the caller's import transaction."""
+def validate_snapshots(items):
+    """The export's `snapshots` value (None: no snapshots), checked and normalized.
+    Raises 422 validation_failed on any bad shape, without touching the store."""
     if items is None:
-        items = []
+        return []
     if not isinstance(items, list):
         validation("Invalid snapshots")
-    generation = _generation(db)
-    restored = {}
+    seen = set()
+    valid = []
     for item in items:
         token, user_id, head, entries = _imported(item)
-        if token in restored:
+        if token in seen:
             validation("Duplicate snapshot token")
-        restored[token] = {"owner": user_id, "generation": generation, "head": head, "entries": entries, "token": token}
-    db.execute("DELETE FROM statement_snapshots")
+        seen.add(token)
+        valid.append((token, user_id, head, entries))
+    return valid
+
+
+def import_snapshots(db, items):
+    """Restore exported snapshots, bound to this service's current generation.
+    Existing tokens stay until reset; an imported token replaces one with the same
+    value. Everything is validated before the store changes.
+    Stage-4 writes the rows in the caller's import transaction."""
+    generation = _generation(db)
+    restored = {token: {"owner": user_id, "generation": generation, "head": head, "entries": entries, "token": token}
+                for token, user_id, head, entries in validate_snapshots(items)}
     for snapshot in restored.values():
+        db.execute("DELETE FROM statement_snapshots WHERE token = ?", (snapshot["token"],))
         _store(db, snapshot)
