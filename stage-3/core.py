@@ -17,6 +17,14 @@ WRITE_LOCK = threading.RLock()
 HANDLE_PATTERN = re.compile(r"^[a-z0-9_]{1,20}$")
 MAX_BALANCE = 2**53
 PASSWORD_ITERATIONS = 5000
+PRIOR_PASSWORD_ITERATIONS = 20000
+LEGACY_PASSWORD_ITERATIONS = 120000
+SCRYPT_N = 2**14
+SCRYPT_R = 8
+SCRYPT_P = 1
+PASSWORD_DIGEST_BYTES = 32
+SCRYPT_TAG = f"scrypt${SCRYPT_N}${SCRYPT_R}${SCRYPT_P}$"
+PASSWORD_HASH_PATTERN = re.compile(rf"(?:{re.escape(SCRYPT_TAG)}|pbkdf2_sha256\$(?:{PASSWORD_ITERATIONS}|{PRIOR_PASSWORD_ITERATIONS})\$)?[0-9a-f]{{64}}")
 TABLES = ("idempotency", "tokens", "wallet_openings", "payment_revisions", "authorization_history_baselines", "authorization_events", "authorizations", "payments", "requests", "splits", "settlements", "operators", "users", "meta")
 CLOCK_HIGH_WATER = None
 
@@ -81,18 +89,29 @@ def derived_handle(email):
 
 def hash_password(password, salt=None):
     salt = salt or secrets.token_bytes(16)
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, PASSWORD_ITERATIONS)
-    return salt.hex(), f"pbkdf2_sha256${PASSWORD_ITERATIONS}${digest.hex()}"
+    digest = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=SCRYPT_N, r=SCRYPT_R, p=SCRYPT_P, dklen=PASSWORD_DIGEST_BYTES)
+    return salt.hex(), SCRYPT_TAG + digest.hex()
+
+
+def valid_password_hash(value):
+    return isinstance(value, str) and PASSWORD_HASH_PATTERN.fullmatch(value) is not None
 
 
 def check_password(password, salt_hex, digest_hex):
-    # Keep earlier exports readable; new records carry their KDF work factor.
-    iterations = 120000
-    if digest_hex.startswith("pbkdf2_sha256$"):
-        _, iterations_text, digest_hex = digest_hex.split("$")
-        iterations = int(iterations_text)
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt_hex), iterations)
-    return hmac.compare_digest(digest.hex(), digest_hex)
+    # Only service-produced parameter tags may select a KDF or work factor.
+    if not valid_password_hash(digest_hex) or not re.fullmatch(r"[0-9a-f]{32}", salt_hex):
+        return False
+    if digest_hex.startswith(SCRYPT_TAG):
+        digest = hashlib.scrypt(password.encode("utf-8"), salt=bytes.fromhex(salt_hex), n=SCRYPT_N, r=SCRYPT_R, p=SCRYPT_P, dklen=PASSWORD_DIGEST_BYTES)
+        expected = digest_hex[len(SCRYPT_TAG):]
+    else:
+        iterations = LEGACY_PASSWORD_ITERATIONS
+        if digest_hex.startswith("pbkdf2_sha256$"):
+            _, iterations_text, digest_hex = digest_hex.split("$")
+            iterations = int(iterations_text)
+        digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt_hex), iterations)
+        expected = digest_hex
+    return hmac.compare_digest(digest.hex(), expected)
 
 
 def connection():
