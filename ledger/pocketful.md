@@ -93,6 +93,7 @@ Adversary pre-mortem for W-8 (Sat 3 Oct evening):
 9015. “Reads and writes must reflect expiry even if no request occurred at the deadline.” — W-8 pre-mortem 3 · W-8 · One clock reading per request; an expired capture gets the D-14 error for its party and status.
 9016. “Each idempotent capture moves” — W-8 pre-mortem 4 · W-8 · The capture receipt, key claim and hold transition commit in one transaction.
 9017. “A stage-2 service must accept an export produced by the same team's stage-1 service.” — W-8 pre-mortem 5 · W-8 · Reset and import derive available, keep stage-1 tokens and retry receipts, and validate before replacing anything.
+9018. “Reserve 400 `malformed_request` for a body that does not parse or a field of the wrong type.” — finding PF-A5 (Adversary, uncommitted W-8 over cd4efc0) · W-8 · A capture `final` that is not a JSON boolean ("false", null, 0, []) is 400 malformed_request, not 422; a claimed key still resolves first (D-2). Status: open, with Builder (Adversary sent it to Builder directly).
 
 ## Stage 1 entries
 N/A: “This stage defines the initial service and its API.” — stage-1.md line 3: stage introduction, no behaviour
