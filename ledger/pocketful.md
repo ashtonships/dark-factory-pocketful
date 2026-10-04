@@ -83,7 +83,7 @@ quotes” (the quote is what `tools/spec_coverage.py` matches). `N/A:` lines are
   `corrections` not a list of 1..32 objects or duplicate payment_ids → per item in input order: 422 field validation,
   404 unknown payment, 409 `stale_revision`, 422 `linked_payment_immutable` (capture or refund), 422
   `refund_exceeds_payment` → 422 `incomplete_settlement` → 422 `validation_failed` (members' effective instants
-  differ) → 409 `insufficient_funds` (resulting current available funds, all revisions combined) → 422
+  differ) → 409 `insufficient_funds` (resulting current available funds, all revisions combined) → 409
   `historical_overdraft` (every effective/event boundary, all revisions combined). Reason: it is the spec's order
   (3031). The instant rule needs every member present, so it follows completeness. Item errors come first for each
   item, so an earlier item's 404 beats a later item's stale revision.
