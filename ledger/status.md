@@ -45,3 +45,6 @@ Updated by Coordinator. Ledger: `ledger/pocketful.md`. Time box: final report by
 - W-7 part 1 (Builder-Two): merge builder, move ui-core pages into stage-2/ui/, drill against the real stage-2 container. Part 2, the restyle, follows the design pick.
 - Time check: stage 1 still not accepted at 21:30 because of host load. Cut rule: stage 3 not accepted by Sun 04:00 → no stage 4; not accepted by 12:00 → entry is stages 1-2.
 - Stage 1 accepted 22:10. Adversary dispatched to attack 57cc82e: retained suite, a reset-latency probe after a 50-way burst, seeded faults (seed 1). W-7 part 2 (restyle to the pick) sent to Builder-Two.
+- W-8 124477e (revert of 80c511a; stage-2 tree equals f60ba6f). D-19 event-time commit requested from Builder.
+- W-7 handed back at 9332b9f on builder-two (merges builder 124477e as e72d825; only stage-2/ui/ changed). Builder-Two evidence: drill 161/161 against the real container through a fault proxy; upgrade drill 26/26; selftest 43/43; screenshots /Volumes/SSD/overflow/darkfactory/w7-shots/. Sent to Adversary for code review and to Checker for a pre-gate dry run and interface review. Gate commit = builder-two after merging Builder's D-19 commit.
+- Stage-3 checks on main 2bba408 (W-9 36, W-10 30), not in force.
