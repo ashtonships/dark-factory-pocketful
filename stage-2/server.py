@@ -555,19 +555,17 @@ class PocketfulHandler(BaseHTTPRequestHandler):
         if db.execute("SELECT 1 FROM operators WHERE user_id = ?", (user["id"],)).fetchone() is None:
             raise APIError(403, "forbidden")
         transfers = body.get("transfers")
-        if "transfers" not in body:
-            validation("Missing transfers")
-        if not isinstance(transfers, list):
-            malformed("Transfers must be an array")
-        if not 1 <= len(transfers) <= 32:
+        if not isinstance(transfers, list) or not 1 <= len(transfers) <= 32:
             validation("Transfers must contain 1 to 32 objects")
         prepared = []
         net = {}
         for transfer in transfers:
             if not isinstance(transfer, dict):
-                malformed("Transfer must be an object")
-            source_handle = required_string(transfer, "from_handle")
-            target_handle = required_string(transfer, "to_handle")
+                validation("Invalid transfer object")
+            source_handle = transfer.get("from_handle")
+            target_handle = transfer.get("to_handle")
+            if not isinstance(source_handle, str) or not isinstance(target_handle, str):
+                validation("Invalid transfer handles")
             value = amount(transfer)
             transfer_note = note(transfer)
             transfer_visibility = visibility(transfer)
