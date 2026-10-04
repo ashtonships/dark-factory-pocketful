@@ -436,6 +436,42 @@ async function run() {
   check("final capture marks it captured", await bpage.waitForFunction((s) => document.querySelector(s)?.getAttribute("data-status") === "captured", T("authorization-item-a_1"), { timeout: 4000 * S }).then(() => true, () => false));
   check("authorization-captured shows 20.00 EUR", (await text(bpage, "authorization-captured-a_1")) === "20.00 EUR");
   check("captured hold has no capture button", (await count(bpage, "authorization-capture-a_1")) === 0);
+
+  // PF-A7: an older non-final capture's late success must not discard a newer
+  // uncertain capture's key; the unchanged retry replays and moves money once.
+  {
+    const adaTok = await login("ada@example.com");
+    const h7 = (await call("POST", "/authorizations", { to_handle: "bob", amount: 1000, note: "pf-a7" }, adaTok, "k-pfa7")).data.authorization_id;
+    const capPath = "/authorizations/" + h7 + "/capture";
+    const sent = [];
+    const onReq = (r) => { if (r.method() === "POST" && r.url().endsWith(capPath)) sent.push({ key: r.headers()["idempotency-key"], body: r.postData() }); };
+    bpage.on("request", onReq);
+    await bpage.reload();
+    await waitPresent(bpage, "authorization-capture-" + h7);
+    await faults([
+      { method: "POST", path: capPath, action: "delay", ms: 6000, times: 1 },   // under the client's 10 s timeout: a late success, not a timeout
+      { method: "POST", path: capPath, action: "drop_after_commit", times: 1 }]);
+    await bpage.fill(T("authorization-capture-amount-" + h7), "3.00");
+    await bpage.check(T("authorization-keep-open-" + h7));
+    await bpage.click(T("authorization-capture-" + h7));          // commits, success delayed
+    await bpage.waitForTimeout(300 * S);
+    await bpage.fill(T("authorization-capture-amount-" + h7), "2.00");
+    await bpage.click(T("authorization-capture-" + h7));          // commits, response lost
+    check("PF-A7: lost newer capture shows authorization-uncertain", await waitPresent(bpage, "authorization-uncertain", 8000 * S));
+    await faults([{ method: "GET", path: "/authorizations", action: "delay", ms: 4000 * S, times: 1 }]);
+    // The older success arrives and starts a (delayed) list refresh; retry while it is in flight.
+    await bpage.waitForRequest((r) => r.method() === "GET" && r.url().includes("/authorizations?"), { timeout: 15000 * S });
+    check("PF-A7: retry form unchanged (2.00, keep ticked)",
+      (await bpage.inputValue(T("authorization-capture-amount-" + h7))) === "2.00" && await bpage.isChecked(T("authorization-keep-open-" + h7)));
+    await bpage.click(T("authorization-capture-" + h7));          // unchanged retry
+    check("PF-A7: retry clears authorization-uncertain", await waitGone(bpage, "authorization-uncertain", 15000 * S));
+    bpage.off("request", onReq);
+    check("PF-A7: retry reused the newer capture's key and body", sent.length === 3 && sent[2].key === sent[1].key && sent[2].body === sent[1].body && sent[1].key !== sent[0].key, sent);
+    const after = (await call("GET", "/authorizations?direction=incoming&limit=200", undefined, await login("bob@example.com"))).data.authorizations.find((x) => x.authorization_id === h7);
+    check("PF-A7: cumulative captured_amount is 500 (money moved once per capture)", after && after.captured_amount === 500 && after.status === "open", after && { captured: after.captured_amount, status: after.status });
+    await faults([]);
+    await call("POST", "/authorizations/" + h7 + "/void", {}, adaTok);   // release the rest; later checks expect no holds
+  }
   await page.goto(BASE + "/");
   await waitPresent(page, "wallet-available");
   check("ada: wallet-held absent at zero", (await count(page, "wallet-held")) === 0);

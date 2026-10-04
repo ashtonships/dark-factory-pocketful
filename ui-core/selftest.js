@@ -175,6 +175,19 @@
     var counting = { getRandomValues: function (a) { for (var i = 0; i < a.length; i++) a[i] = (bytes++) & 255; return a; } };
     ok(C.newKey(counting) !== C.newKey(counting), "successive draws differ");
   });
+  test("keys", "a late success forgets only its own key (PF-A7)", "ledger 1114-1115, 9022; stage-1 §7", function () {
+    var n = 0;
+    var ring = new C.KeyRing(function () { return "k" + (++n); });
+    var older = ring.keyFor("capture:a_1", "POST", "/authorizations/a_1/capture", { amount: 300, final: false }, { amount: "3.00", keep: "on" });
+    var newer = ring.keyFor("capture:a_1", "POST", "/authorizations/a_1/capture", { amount: 200, final: false }, { amount: "2.00", keep: "on" });
+    ok(older !== newer, "edited capture is a new intent");
+    eq(ring.forget("capture:a_1", older), false, "older success leaves the newer key alone");
+    eq(ring.keyFor("capture:a_1", "POST", "/authorizations/a_1/capture", { amount: 200, final: false }, { amount: "2.00", keep: "on" }), newer, "unchanged retry keeps the newer key");
+    eq(ring.forget("capture:a_1", newer), true, "its own success forgets it");
+    ok(ring.keyFor("capture:a_1", "POST", "/authorizations/a_1/capture", { amount: 200, final: false }, { amount: "2.00", keep: "on" }) !== newer, "next capture is a new intent");
+    ring.keyFor("pay", "POST", "/payments", { amount: 1 });
+    eq(ring.forget("pay"), true, "forget without a key still clears the slot");
+  });
   test("keys", "generated keys are 1..255 characters and unique", "stage-1 §5 'Idempotency-Key 1 to 255 characters'", function () {
     var seen = {};
     for (var i = 0; i < 500; i++) {

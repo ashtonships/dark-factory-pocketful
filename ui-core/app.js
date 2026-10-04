@@ -265,7 +265,7 @@
       showOutcome(slot, sub, prefix);
       api.write(prefix, "POST", opts.path, body, { expect: opts.expect, identity: identity }).then(function (outcome) {
         if (sub.settle(ticket, outcome)) {
-          if (outcome.kind === "ok" && !opts.keep) { form.reset(); api.keys.forget(prefix); }
+          if (outcome.kind === "ok" && !opts.keep) { form.reset(); api.keys.forget(prefix, outcome.idempotencyKey); }
           showOutcome(slot, sub, prefix, opts.success);
         }
         if (outcome.kind !== "uncertain") refresh();
@@ -502,7 +502,7 @@
       showOutcome(slot, sub, "split");
       api.write("split", "POST", "/splits", body, { expect: "split_id", identity: identity }).then(function (outcome) {
         if (sub.settle(ticket, outcome)) {
-          if (outcome.kind === "ok") { tid("split-submit").form.reset(); api.keys.forget("split"); preview(); }
+          if (outcome.kind === "ok") { tid("split-submit").form.reset(); api.keys.forget("split", outcome.idempotencyKey); preview(); }
           showOutcome(slot, sub, "split", function (s) {
             var n = s.requests.length;
             return ["Requests created", n ? "Split " + money(s.amount) + ": " + n + " request" + (n === 1 ? "" : "s") + " sent. See them under Requests."
@@ -529,7 +529,9 @@
       validation_failed: "Enter an amount of at least the smallest unit.",
       forbidden: "Only the recipient can collect; only the payer can release."
     });
-    var typed = {};
+    // What the person has typed or ticked per hold, kept across list re-renders
+    // so an unchanged retry sends the same body and identity.
+    var typed = {}, keepOpen = {};
 
     function act(kind, a) {
       var ticket;
@@ -546,20 +548,21 @@
         api.write(slotName, "POST", "/authorizations/" + encodeURIComponent(a.authorization_id) + "/capture", body,
           { expect: "payment_id", identity: identity })
           .then(function (o) {
-            // A confirmed capture closes that intent: the next capture is a new one.
-            if (o.kind === "ok") api.keys.forget(slotName);
-            done(ticket, o, function (p) { return ["Capture complete", "You collected " + money(p.amount) + " from @" + a.from_handle + "."]; });
+            // A confirmed capture closes that intent, and only that one: a late
+            // success must not discard the key of a newer pending or uncertain capture.
+            if (o.kind === "ok") api.keys.forget(slotName, o.idempotencyKey);
+            done(ticket, o, a.authorization_id, function (p) { return ["Capture complete", "You collected " + money(p.amount) + " from @" + a.from_handle + "."]; });
           });
       } else {
         ticket = sub.begin();
         showOutcome(slot, sub, "authorization");
         api.post("/authorizations/" + encodeURIComponent(a.authorization_id) + "/void", {}, "authorization_id")
-          .then(function (o) { done(ticket, o, function () { return ["Hold released", "The money held for @" + a.to_handle + " is available again."]; }); });
+          .then(function (o) { done(ticket, o, a.authorization_id, function () { return ["Hold released", "The money held for @" + a.to_handle + " is available again."]; }); });
       }
     }
-    function done(ticket, outcome, success) {
+    function done(ticket, outcome, id, success) {
       if (sub.settle(ticket, outcome)) {
-        if (outcome.kind === "ok") typed = {};
+        if (outcome.kind === "ok") { delete typed[id]; delete keepOpen[id]; }
         showOutcome(slot, sub, "authorization", success);
       }
       if (outcome.kind !== "uncertain") refresh();
@@ -581,7 +584,8 @@
               value: typed[id] !== undefined ? typed[id] : decimal(remaining),
               on: { input: function (e) { typed[id] = e.target.value; } } })),
           h("label", { class: "check", for: keepId },
-            h("input", { type: "checkbox", id: keepId, "data-testid": keepId }),
+            h("input", { type: "checkbox", id: keepId, "data-testid": keepId, checked: keepOpen[id] ? true : null,
+              on: { change: function (e) { keepOpen[id] = e.target.checked; } } }),
             h("span", null, "Keep the rest held", h("span", { class: "check-hint", text: "Leave it unticked to collect and close the hold." }))),
           h("button", { type: "button", class: "button button-primary button-block", "data-testid": "authorization-capture-" + id,
             text: "Collect", on: { click: function () { act("capture", a); } } }));

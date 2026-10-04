@@ -156,7 +156,16 @@
     this._slots[slot] = { fingerprint: fingerprint, key: key };
     return key;
   };
-  KeyRing.prototype.forget = function (slot) { delete this._slots[slot]; };
+  // Forgets a slot's key. With `key`, only when that key is still the slot's
+  // current one: a late success for an older intent must never discard the key
+  // a newer, possibly uncertain, submission needs for its retry.
+  KeyRing.prototype.forget = function (slot, key) {
+    var current = this._slots[slot];
+    if (!current) return false;
+    if (key !== undefined && current.key !== key) return false;
+    delete this._slots[slot];
+    return true;
+  };
   KeyRing.prototype.clear = function () { this._slots = Object.create(null); };
 
   // ----------------------------------------------------------- token store --
