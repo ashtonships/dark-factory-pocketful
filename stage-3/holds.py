@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from core import amount, fixture_record_id, get_meta, identifier, note, number_as_integer, required_string, server_clock, validation, visibility
+from history import instant, parse_instant
 
 
 STATUSES = ("open", "captured", "voided", "expired")
@@ -20,7 +21,7 @@ def record_expiries(db, now):
     # The clock event occurs at its known deadline, not at its later observation.
     rows = db.execute("SELECT * FROM authorizations WHERE status IN ('open', 'expired')").fetchall()
     for row in rows:
-        if expiry(row["expires_at"]) <= now and db.execute(
+        if parse_instant(row["expires_at"]) <= instant(now) and db.execute(
             "SELECT 1 FROM authorization_events WHERE authorization_id = ? AND kind = 'expiry'",
             (row["id"],),
         ).fetchone() is None:
@@ -32,15 +33,7 @@ def clock():
 
 
 def expiry(value):
-    if not isinstance(value, str):
-        validation("Invalid expiration timestamp")
-    try:
-        parsed = datetime.fromisoformat(value)
-        if parsed.tzinfo is None or parsed.utcoffset() is None:
-            validation("Expiration requires a timezone")
-        return parsed.astimezone(timezone.utc)
-    except (ValueError, OverflowError):
-        validation("Invalid expiration timestamp")
+    return parse_instant(value)
 
 
 def lifetime(value, now=None):
@@ -55,7 +48,7 @@ def lifetime(value, now=None):
 
 
 def effective_status(row, now):
-    return "expired" if row["status"] == "open" and expiry(row["expires_at"]) <= now else row["status"]
+    return "expired" if row["status"] == "open" and parse_instant(row["expires_at"]) <= instant(now) else row["status"]
 
 
 def remaining(row, now):
@@ -71,12 +64,19 @@ def wallet_funds(db, user_id, total, now):
 def authorization_body(db, row, now):
     source = db.execute("SELECT handle FROM users WHERE id = ?", (row["from_user_id"],)).fetchone()
     target = db.execute("SELECT handle FROM users WHERE id = ?", (row["to_user_id"],)).fetchone()
+    status = effective_status(row,now)
+    closed_at = None
+    if status == "expired":
+        closed_at = row["expires_at"]
+    elif status != "open":
+        closed = db.execute("SELECT event_at FROM authorization_events WHERE authorization_id=? AND remaining_amount=0 ORDER BY seq DESC LIMIT 1", (row["id"],)).fetchone()
+        closed_at = closed["event_at"] if closed else row["created_at"]
     return {
         "authorization_id": row["id"], "from_user_id": row["from_user_id"], "from_handle": source["handle"],
         "to_user_id": row["to_user_id"], "to_handle": target["handle"], "amount": row["amount"],
         "captured_amount": row["captured_amount"], "remaining_amount": remaining(row, now),
         "currency": get_meta(db)["currency"], "note": row["note"], "visibility": row["visibility"],
-        "status": effective_status(row, now), "expires_at": row["expires_at"],
+        "status": status, "expires_at": row["expires_at"], "closed_at":closed_at,
         "payment_id": row["payment_id"], "payment_ids": json.loads(row["payment_ids_json"]),
         "created_at": row["created_at"],
     }
@@ -129,7 +129,7 @@ def prepare_fixture_authorizations(fixture, users, payments, now=None):
             validation("Invalid capture parties")
         if sum(payment_by_id[pid][3] for pid in payment_ids) > captured:
             validation("Invalid captured amount")
-        if status == "open" and expiration > now:
+        if status == "open" and expiration > instant(now):
             held[source] = held.get(source, 0) + value - captured
         ids.add(auth_id)
         prepared.append((auth_id, source, target, value, captured, note(item, fixture=True), visibility(item, fixture=True), status, expires_at, payment_id, json.dumps(payment_ids)))

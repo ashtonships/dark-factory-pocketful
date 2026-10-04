@@ -16,6 +16,8 @@ from core import (
 )
 from state import export_state, import_state
 from history_store import baseline, original
+from corrections import correct, revisions
+from history import instant, parse_instant
 from holds import STATUSES, authorization_body, capture_value, clock, effective_status, expiry, lifetime, record_event, wallet_funds
 
 
@@ -23,6 +25,7 @@ MAX_BODY_BYTES = 8 * 1024 * 1024
 MAX_OFFSET = 2**63 - 1
 REQUEST_ACTION = re.compile(r"^/requests/([^/]+)/(pay|decline|cancel)$")
 AUTHORIZATION_ACTION = re.compile(r"^/authorizations/([^/]+)/(capture|void)$")
+PAYMENT_HISTORY = re.compile(r"^/payments/([^/]+)/(corrections|revisions)$")
 UI_ROOT = Path(__file__).resolve().parent / "ui"
 PAGES = {"/": "index.html", "/requests": "requests.html", "/split": "split.html", "/signup": "signup.html", "/login": "login.html", "/authorizations": "authorizations.html"}
 ASSETS = {"/ui/pocketful-core.js": ("pocketful-core.js", "text/javascript; charset=utf-8"), "/ui/app.js": ("app.js", "text/javascript; charset=utf-8"), "/ui/theme.css": ("theme.css", "text/css; charset=utf-8")}
@@ -66,7 +69,7 @@ def json_body(data):
 
 class PocketfulHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
-    server_version = "Pocketful/2"
+    server_version = "Pocketful/3"
 
     def serve_ui(self, path):
         asset = ASSETS.get(path)
@@ -187,6 +190,9 @@ class PocketfulHandler(BaseHTTPRequestHandler):
             return ROUTES[path]
         if REQUEST_ACTION.fullmatch(path) or AUTHORIZATION_ACTION.fullmatch(path):
             return {"POST"}
+        history_action = PAYMENT_HISTORY.fullmatch(path)
+        if history_action:
+            return {"GET"} if history_action.group(2) == "revisions" else {"POST"}
         if path in PAGES or path in ASSETS:
             return {"GET"}
         return None
@@ -322,6 +328,8 @@ class PocketfulHandler(BaseHTTPRequestHandler):
                                 result = self.activity(db, user)
                             elif path == "/authorizations":
                                 result = self.list_authorizations(db, user)
+                            elif PAYMENT_HISTORY.fullmatch(path):
+                                result = revisions(db,user,PAYMENT_HISTORY.fullmatch(path).group(1))
                             else:
                                 raise APIError(404, "not_found")
                             db.execute("COMMIT")
@@ -348,6 +356,10 @@ class PocketfulHandler(BaseHTTPRequestHandler):
                     self.transition_request(db, user, action.group(1), action.group(2))
                     return
                 body = json_body(raw_body)
+                history_action = PAYMENT_HISTORY.fullmatch(path)
+                if history_action:
+                    self.idempotent(db,user,path,body,lambda db,user,body:correct(self,db,user,body,history_action.group(1)))
+                    return
                 if path == "/authorizations":
                     self.idempotent(db, user, path, body, self.create_authorization)
                     return
@@ -648,7 +660,7 @@ class PocketfulHandler(BaseHTTPRequestHandler):
             raise APIError(403, "forbidden")
         if hold["status"] != "open":
             raise APIError(409, "authorization_not_open")
-        if expiry(hold["expires_at"]) <= self.now:
+        if parse_instant(hold["expires_at"]) <= instant(self.now):
             raise APIError(409, "authorization_expired")
         remainder = hold["amount"] - hold["captured_amount"]
         if requested is not None and requested > remainder:
@@ -703,7 +715,7 @@ class PocketfulHandler(BaseHTTPRequestHandler):
             clause, parties = "from_user_id = ?", (user["id"],)
         else:
             clause, parties = "(from_user_id = ? OR to_user_id = ?)", (user["id"], user["id"])
-        rows = db.execute("SELECT * FROM authorizations WHERE " + clause + " ORDER BY created_at DESC, seq DESC", parties)
+        rows = sorted(db.execute("SELECT * FROM authorizations WHERE " + clause, parties).fetchall(), key=lambda row:(parse_instant(row["created_at"]),row["seq"]),reverse=True)
         visible = [row for row in rows if status is None or effective_status(row, self.now) == status]
         page = visible[offset:offset + limit]
         return {"authorizations": [authorization_body(db, row, self.now) for row in page], "has_more": len(visible) > offset + limit}
@@ -739,9 +751,10 @@ class PocketfulHandler(BaseHTTPRequestHandler):
     def activity(self, db, user):
         _, limit, offset = self.pagination()
         rows = db.execute(
-            "SELECT * FROM payments WHERE visibility = 'public' OR from_user_id = ? OR to_user_id = ? ORDER BY created_at DESC, seq DESC LIMIT ? OFFSET ?",
-            (user["id"], user["id"], limit + 1, offset),
+            "SELECT * FROM payments WHERE visibility = 'public' OR from_user_id = ? OR to_user_id = ?",
+            (user["id"], user["id"]),
         ).fetchall()
+        rows = sorted(rows,key=lambda row:(parse_instant(row["created_at"]),row["seq"]),reverse=True)[offset:offset+limit+1]
         return {"payments": [payment_body(db, row) for row in rows[:limit]], "has_more": len(rows) > limit}
 
     def do_GET(self):

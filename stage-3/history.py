@@ -1,6 +1,6 @@
 """Pure stage-3 history queries; caller owns authentication, snapshot and clock.
 
-parse_instant(text) returns an exact, comparable Decimal UTC second key. T and K
+parse_instant(text) returns an exact, comparable Decimal UTC ordering key. T and K
 in every function accept that key or an aware datetime (never naive datetimes).
 selected_revisions returns entry dictionaries: payment (selected amount), revision,
 effective_at, recorded_at, delta. statement_rows adds balance_after and returns
@@ -24,7 +24,10 @@ def parse_instant(text):
     fraction = match.group(7) or ""
     offset = match.group(8)
     try:
-        date = datetime(year, month, day, hour, minute, second)
+        if not 0 <= second <= 60:
+            raise ValueError("Second outside RFC3339 range")
+        leap = second == 60
+        date = datetime(year, month, day, hour, minute, min(second,59))
         offset_seconds = 0
         if offset.lower() != "z":
             offset_hour, offset_minute = map(int, offset[1:].split(":"))
@@ -33,7 +36,13 @@ def parse_instant(text):
             offset_seconds = (offset_hour * 60 + offset_minute) * 60
             if offset.startswith("-"):
                 offset_seconds = -offset_seconds
-        whole = date.toordinal() * SECONDS_PER_DAY + hour * 3600 + minute * 60 + second - offset_seconds
+        utc_seconds = date.toordinal() * SECONDS_PER_DAY + hour * 3600 + minute * 60 + min(second,59) - offset_seconds
+        utc_day, within_day = divmod(utc_seconds,SECONDS_PER_DAY)
+        if leap and within_day != SECONDS_PER_DAY-1:
+            raise ValueError("Leap second must be at a UTC day boundary")
+        # Reserve an ordering slot at each UTC day end, keeping a leap instant
+        # distinct from midnight without rounding arbitrarily fine fractions.
+        whole = utc_day * (SECONDS_PER_DAY+1) + within_day + int(leap)
         # Construct rather than add Decimals, preserving arbitrarily fine fractions.
         return Decimal(str(whole) + ("." + fraction if fraction else ""))
     except (ValueError, OverflowError):
