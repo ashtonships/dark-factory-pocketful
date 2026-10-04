@@ -16,6 +16,7 @@ from core import (
 )
 from state import export_state, import_state
 from history_store import baseline, original
+import statement
 from corrections import correct, revisions
 from history import instant, parse_instant
 from holds import STATUSES, authorization_body, capture_value, clock, effective_status, expiry, lifetime, record_event, wallet_funds
@@ -37,6 +38,7 @@ ROUTES = {
     "/auth/signup": {"POST"},
     "/auth/login": {"POST"},
     "/me": {"GET"},
+    "/statement": {"GET"},
     "/payments": {"POST"},
     "/requests": {"GET", "POST"},
     "/splits": {"POST"},
@@ -314,7 +316,11 @@ class PocketfulHandler(BaseHTTPRequestHandler):
                         try:
                             user = self.authenticate(db)
                             self.now = clock()
-                            if path == "/me":
+                            if path == "/me" and statement.temporal(self.path):
+                                result = statement.me(self, db, user)
+                            elif path == "/statement":
+                                result = statement.statement(self, db, user)
+                            elif path == "/me":
                                 meta = get_meta(db)
                                 result = {
                                     "user_id": user["id"], "display_name": user["display_name"],
