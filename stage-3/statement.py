@@ -110,7 +110,8 @@ def _take(handler, db, user, query):
     user_id = user["id"]
     opening = history.opening(db, user_id) if start is None else history.total(db, user_id, start, known, inclusive=False)
     entries = history.statement_rows(db, user_id, start, end, known)
-    head = {"opening_balance": opening, "closing_balance": entries[-1]["balance_after"] if entries else opening}
+    closing = opening + sum(entry["delta"] for entry in entries)
+    head = {"opening_balance": opening, "closing_balance": closing}
     for name, text in (("from", from_text), ("to", to_text), ("known_at", known_text)):
         if text is not None:
             head[name] = text
