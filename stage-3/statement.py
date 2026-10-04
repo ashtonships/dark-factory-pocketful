@@ -100,9 +100,12 @@ def _take(handler, db, user, query):
     to_text, end = _instant(query, "to")
     known_text, known = _instant(query, "known_at")
     now = history.instant(handler.now)
-    end = now if end is None else end           # the default `to` is frozen with the snapshot
     known = now if known is None else known
-    if start is not None and start > end:
+    if end is None:
+        # The default `to` is now, frozen with the snapshot. A future `from` with no
+        # `to` is not an inverted range: the window is empty at `from` (D-20 amended).
+        end = now if start is None or start <= now else start
+    elif start is not None and start > end:
         validation("from must not be later than to")
     user_id = user["id"]
     opening = history.opening(db, user_id) if start is None else history.total(db, user_id, start, known, inclusive=False)
