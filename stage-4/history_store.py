@@ -14,7 +14,7 @@ def original(conn, payment_id):
         settlement = conn.execute("SELECT committed_at FROM settlements WHERE id=?", (row["settlement_id"],)).fetchone()
         if settlement:
             at = settlement["committed_at"]
-    conn.execute("INSERT INTO payment_revisions VALUES(?, 1, ?, ?, ?, '')", (payment_id, row["amount"], at, at))
+    conn.execute("INSERT INTO payment_revisions(payment_id,revision,amount,effective_at,recorded_at,reason) VALUES(?, 1, ?, ?, ?, '')", (payment_id, row["amount"], at, at))
 
 
 def baseline(conn, authorization_id, provenance="created", held_amount=None):
@@ -32,7 +32,7 @@ def upgrade_tables(source, now, force=False):
     settlements = {row["id"]: row for row in tables["settlements"]}
     for payment in tables["payments"]:
         at = settlements.get(payment["settlement_id"], {}).get("committed_at", payment["created_at"])
-        tables["payment_revisions"].append({"payment_id":payment["id"], "revision":1, "amount":payment["amount"], "effective_at":at, "recorded_at":at, "reason":""})
+        tables["payment_revisions"].append({"payment_id":payment["id"], "revision":1, "amount":payment["amount"], "effective_at":at, "recorded_at":at, "reason":"", "correction_batch_id":None})
         if payment["from_user_id"] not in net or payment["to_user_id"] not in net:
             validation("Invalid payment parties")
         net[payment["from_user_id"]] -= payment["amount"]
