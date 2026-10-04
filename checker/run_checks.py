@@ -75,6 +75,7 @@ def items_in_force(stage: int) -> list[str]:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--repo")
+    ap.add_argument("--stage-dir", help="build this folder as stage-N instead of <repo>/stage-N (mutation runs)")
     ap.add_argument("--base-url")
     ap.add_argument("--stage", type=int, required=True)
     ap.add_argument("--out", required=True)
@@ -93,8 +94,10 @@ def main() -> int:
     facts: dict = {}
     base2 = None
     try:
+        if a.stage_dir and not a.repo:
+            a.repo = str(Path(a.stage_dir).resolve().parent)
         if a.repo:
-            folder = Path(a.repo) / f"stage-{a.stage}"
+            folder = Path(a.stage_dir).resolve() if a.stage_dir else Path(a.repo) / f"stage-{a.stage}"
             facts["dockerfile"] = (folder / "Dockerfile").is_file()
             run_md = (folder / "RUN.md").read_text(errors="replace") if (folder / "RUN.md").is_file() else ""
             facts["run_md_build_and_run"] = "docker build" in run_md and "docker run" in run_md
@@ -135,19 +138,21 @@ def main() -> int:
                 logs = docker("logs", name).stdout[-3000:]
                 cases[-1]["failure"] += "\n" + logs
                 return finish(out, cases, 1)
-            # stage >= 2: a stage-1 instance from the same checkout, the source of an upgrade export
-            s1 = Path(a.repo) / "stage-1"
-            if a.stage >= 2 and (s1 / "Dockerfile").is_file():
-                tag1 = f"{tag}-s1"
-                b1 = docker("build", "-t", tag1, str(s1), timeout=1800)
-                if b1.returncode == 0:
-                    p1, n1 = free_port(), f"{tag}-stage1"
-                    docker("run", "-d", "--rm", "--name", n1, "-e", "PORT=8080", "-p", f"127.0.0.1:{p1}:8080", tag1)
-                    containers.append(n1)
-                    if wait_healthy(f"http://127.0.0.1:{p1}", time.monotonic() + 60)[0]:
-                        facts["stage1_url"] = f"http://127.0.0.1:{p1}"
-                cases.append({"name": "upgrade: stage-1/ of the same checkout builds and starts (ledger: 1095)",
-                              "failure": None if facts.get("stage1_url") else (b1.stdout + b1.stderr)[-2000:]})
+            # stage >= 2: every earlier stage-K/ of the same checkout, as sources of upgrade exports
+            for k in range(1, a.stage):
+                sk = Path(a.repo) / f"stage-{k}"
+                if not (sk / "Dockerfile").is_file():
+                    continue
+                tagk = f"{tag}-s{k}"
+                bk = docker("build", "-t", tagk, str(sk), timeout=1800)
+                if bk.returncode == 0:
+                    pk, nk = free_port(), f"{tag}-stage{k}"
+                    docker("run", "-d", "--rm", "--name", nk, "-e", "PORT=8080", "-p", f"127.0.0.1:{pk}:8080", tagk)
+                    containers.append(nk)
+                    if wait_healthy(f"http://127.0.0.1:{pk}", time.monotonic() + 60)[0]:
+                        facts[f"stage{k}_url"] = f"http://127.0.0.1:{pk}"
+                cases.append({"name": f"upgrade: stage-{k}/ of the same checkout builds and starts (ledger: 1095, 2099)",
+                              "failure": None if facts.get(f"stage{k}_url") else (bk.stdout + bk.stderr)[-2000:]})
             # default port 8080 when PORT is unset
             port2, name2 = free_port(), f"{tag}-default"
             t = time.monotonic()
@@ -168,8 +173,9 @@ def main() -> int:
             env["PF_RUNTIME"] = str(out / "runtime.json")
         if base2:
             env["PF_BASE_URL_2"] = base2
-        if facts.get("stage1_url"):
-            env["PF_STAGE1_URL"] = facts["stage1_url"]
+        for k in range(1, a.stage):
+            if facts.get(f"stage{k}_url"):
+                env[f"PF_STAGE{k}_URL"] = facts[f"stage{k}_url"]
         env["PF_OUT"] = str(out)
         cmd = [sys.executable, "-m", "pytest", str(HERE / "tests"), "-q", "-p", "no:cacheprovider",
                "--junitxml", str(out / "checks.xml"), "-o", "junit_family=xunit1"]
@@ -190,7 +196,8 @@ def main() -> int:
             docker("rm", "-f", c)
         if a.repo:
             docker("rmi", "-f", tag)
-            docker("rmi", "-f", f"{tag}-s1")
+            for k in range(1, a.stage):
+                docker("rmi", "-f", f"{tag}-s{k}")
 
 
 def finish(out: Path, cases: list[dict], rc: int) -> int:
