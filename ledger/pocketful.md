@@ -86,6 +86,14 @@ Adversary pre-mortem for stage 1 (Sat 3 Oct). These five risks are entries; chec
 9011. “`amount` is at most `1000000000` on any single request, and no operation produces a balance outside ±2⁵³.” — finding PF-A3 (Adversary, W-5 77595cc / W-6 73beaa0) · W-5, W-6, W-1 · The range is inclusive: a balance of exactly 2^53 (9007199254740992) is valid, the server stores and returns it exactly, and the UI formats it (90071992547409.92 EUR) instead of throwing. Status: UI fixed in 93f3606 (Adversary re-review); server covered by Checker d77128b.
 9012. “The required flows must remain clear and usable at a 375 CSS-pixel viewport and at conventional desktop widths, without horizontal page scrolling.” — finding PF-A4 (Adversary, W-6 73beaa0) · W-6, W-7 · The largest legal amounts (balance 9007199254740991 or 2^53, amounts up to 1000000000) fit at 375 px without page overflow: the headline shrinks or wraps, never overflows. This binds every theme, including the restyle in W-7. Status: fixed in 93f3606; Adversary re-review 11/11 core, 32/32 browser; Checker verifies in W-7.
 
+Adversary pre-mortem for W-8 (Sat 3 Oct evening):
+
+9013. “Held funds cannot fund new payments,” — W-8 pre-mortem 1 · W-8 · Holds are subtracted from what payments, request pay and settlement net debits can spend.
+9014. “Captures may spend the money reserved for them.” — W-8 pre-mortem 2 · W-8 · A partial capture spends only its own reservation, never available funds as well, and releases exactly the remainder.
+9015. “Reads and writes must reflect expiry even if no request occurred at the deadline.” — W-8 pre-mortem 3 · W-8 · One clock reading per request; an expired capture gets the D-14 error for its party and status.
+9016. “Each idempotent capture moves” — W-8 pre-mortem 4 · W-8 · The capture receipt, key claim and hold transition commit in one transaction.
+9017. “A stage-2 service must accept an export produced by the same team's stage-1 service.” — W-8 pre-mortem 5 · W-8 · Reset and import derive available, keep stage-1 tokens and retry receipts, and validate before replacing anything.
+
 ## Stage 1 entries
 N/A: “This stage defines the initial service and its API.” — stage-1.md line 3: stage introduction, no behaviour
 2. “Build from the supplied requirements.” — stage-1.md:5 · W-1
