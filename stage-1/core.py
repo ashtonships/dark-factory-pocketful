@@ -16,7 +16,7 @@ DATABASE_PATH = os.environ.get("POCKETFUL_DB", "/tmp/pocketful.sqlite3")
 WRITE_LOCK = threading.RLock()
 HANDLE_PATTERN = re.compile(r"^[a-z0-9_]{1,20}$")
 MAX_BALANCE = 2**53
-PASSWORD_ITERATIONS = 20000
+PASSWORD_ITERATIONS = 5000
 TABLES = ("idempotency", "tokens", "payments", "requests", "splits", "settlements", "operators", "users", "meta")
 
 
