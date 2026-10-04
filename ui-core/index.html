@@ -18,8 +18,7 @@
     <button type="button" class="button button-refresh" data-testid="wallet-refresh">Refresh</button>
     <div id="refresh-status" class="refresh-status" aria-live="polite"></div>
   </section>
-  <div class="money-forms">
-  <form class="card form" id="pay-form" novalidate>
+  <form class="card form pay-form" id="pay-form" novalidate>
     <h2>Send money</h2>
     <div class="field">
       <label for="pay-handle">To handle</label>
@@ -43,7 +42,11 @@
     <button type="submit" class="button button-primary button-block" data-testid="pay-submit">Send</button>
     <div id="pay-messages" class="messages" aria-live="polite"></div>
   </form>
-  <form class="card form" id="request-form" novalidate>
+  <section class="card activity" aria-labelledby="activity-title">
+    <div class="card-head"><h2 id="activity-title">Activity</h2><p class="card-sub">Payments only</p></div>
+    <div id="activity"><div class="skeleton" role="status"><span class="sr-only">Loading…</span><div class="skeleton-row" aria-hidden="true"><span class="sk-dot"></span><span class="sk-lines"><span></span><span></span></span></div><div class="skeleton-row" aria-hidden="true"><span class="sk-dot"></span><span class="sk-lines"><span></span><span></span></span></div><div class="skeleton-row" aria-hidden="true"><span class="sk-dot"></span><span class="sk-lines"><span></span><span></span></span></div></div></div>
+  </section>
+  <form class="card form request-form" id="request-form" novalidate>
     <h2>Request money</h2>
     <div class="field">
       <label for="request-handle">From handle</label>
@@ -60,7 +63,7 @@
     <button type="submit" class="button button-primary button-block" data-testid="request-submit">Request</button>
     <div id="request-messages" class="messages" aria-live="polite"></div>
   </form>
-  <form class="card form" id="authorize-form" novalidate>
+  <form class="card form hold-form" id="authorize-form" novalidate>
     <h2>Hold money</h2>
     <p class="form-hint">Reserve money for someone. They collect it later; anything left returns to you when the hold expires.</p>
     <div class="field">
@@ -85,11 +88,6 @@
     <button type="submit" class="button button-primary button-block" data-testid="authorize-submit">Hold money</button>
     <div id="authorize-messages" class="messages" aria-live="polite"></div>
   </form>
-  </div>
-  <section class="card activity" aria-labelledby="activity-title">
-    <div class="card-head"><h2 id="activity-title">Activity</h2><p class="card-sub">Payments only</p></div>
-    <div id="activity"><div class="skeleton" role="status"><span class="sr-only">Loading…</span><div class="skeleton-row" aria-hidden="true"><span class="sk-dot"></span><span class="sk-lines"><span></span><span></span></span></div><div class="skeleton-row" aria-hidden="true"><span class="sk-dot"></span><span class="sk-lines"><span></span><span></span></span></div><div class="skeleton-row" aria-hidden="true"><span class="sk-dot"></span><span class="sk-lines"><span></span><span></span></span></div></div></div>
-  </section>
 </main>
 </body>
 </html>

@@ -54,7 +54,7 @@ a:hover { color: var(--primary-hover); }
   display: grid; grid-template-columns: auto 1fr; grid-template-areas: "brand user" "nav nav";
   align-items: center; gap: var(--s1) var(--s2);
 }
-.brand { grid-area: brand; font-weight: 750; font-size: 1.5rem; letter-spacing: -.02em; color: var(--ink); text-decoration: none; }
+.brand { grid-area: brand; display: inline-flex; align-items: center; min-height: var(--control); font-weight: 750; font-size: 1.5rem; letter-spacing: -.02em; color: var(--ink); text-decoration: none; }
 .user { grid-area: user; justify-self: end; display: flex; align-items: center; gap: var(--s1); min-width: 0; }
 .user-text { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
 .user-name { font-weight: 600; overflow-wrap: anywhere; }
@@ -132,8 +132,7 @@ select { appearance: none; padding-right: 40px; background-image: url("data:imag
 .button-primary:hover { background: var(--primary-hover); }
 .button-secondary { background: var(--surface); color: var(--ink); border-color: var(--line-strong); }
 .button-secondary:hover { background: var(--ivory); }
-.button-small { min-height: 40px; padding: 0 12px; font-size: .9375rem; }
-@media (pointer: coarse) { .button-small { min-height: var(--control); } }
+.button-small { padding: 0 12px; font-size: .9375rem; }
 .button-block { width: 100%; }
 .form.is-busy .button-primary { opacity: .75; }
 
@@ -219,13 +218,19 @@ select { appearance: none; padding-right: 40px; background-image: url("data:imag
 .wallet-card .button-refresh:hover { background: var(--ivory); }
 
 /* -------------------------------------------------------------- home -- */
-.money-forms { display: grid; gap: var(--s2); align-items: start; }
-@media (min-width: 760px) { .money-forms { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); } }
+/* Phone order follows the DOM: wallet, pay, activity, request, hold. */
+@media (min-width: 760px) {
+  .page-index { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
+  .page-index .wallet-panel { grid-column: 1 / -1; grid-row: 1; }
+  .page-index .pay-form { grid-column: 1; grid-row: 2; }
+  .page-index .request-form { grid-column: 2; grid-row: 2; }
+  .page-index .hold-form { grid-column: 3; grid-row: 2; }
+  .page-index .activity { grid-column: 1 / -1; grid-row: 3; }
+}
 @media (min-width: 1100px) {
-  .page-index { grid-template-columns: minmax(0, 1fr) 340px; grid-template-rows: auto 1fr; align-items: start; }
-  .page-index .wallet-panel, .page-index .money-forms { grid-column: 1; }
-  .page-index .activity { grid-column: 2; grid-row: 1 / span 2; }
-  .page-index .money-forms { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .page-index { grid-template-columns: repeat(3, minmax(0, 1fr)) 340px; grid-template-rows: auto 1fr; }
+  .page-index .wallet-panel { grid-column: 1 / 4; }
+  .page-index .activity { grid-column: 4; grid-row: 1 / span 2; }
 }
 
 /* ------------------------------------------------------ activity feed -- */
@@ -244,7 +249,9 @@ select { appearance: none; padding-right: 40px; background-image: url("data:imag
 .meta { color: var(--ink-2); font-size: .8125rem; display: flex; flex-wrap: wrap; gap: 2px var(--s1); align-items: center; }
 .feed-side { text-align: right; display: grid; justify-items: end; gap: 2px; }
 .amount { font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.vis-private::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 4px; border: 1.6px solid currentColor; border-radius: 2px 2px 3px 3px; vertical-align: -1px; }
+.vis { display: inline-flex; align-items: center; gap: 4px; }
+.vis .icon { width: 14px; height: 14px; stroke-width: 2; }
+.vis-private { background: var(--ivory); border: 1px solid var(--line); border-radius: 999px; padding: 0 8px 0 6px; color: var(--ink); font-weight: 600; }
 .list-foot { margin-top: var(--s2); }
 
 /* ----------------------------------------------------------- requests -- */
@@ -280,9 +287,13 @@ select { appearance: none; padding-right: 40px; background-image: url("data:imag
 .preview-foot { border-top: 1px solid var(--line); padding-top: 12px; font-size: .875rem; }
 
 /* -------------------------------------------------------------- holds -- */
+/* Phone order follows the DOM: explainer, wallet, the holds list, then the form. */
 @media (min-width: 760px) {
   .page-authorizations { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
-  .page-authorizations .page-head, .page-authorizations .holds-card { grid-column: 1 / -1; }
+  .page-authorizations .page-head { grid-column: 1 / -1; grid-row: 1; }
+  .page-authorizations .wallet-card { grid-column: 1; grid-row: 2; }
+  .page-authorizations .hold-form { grid-column: 2; grid-row: 2; }
+  .page-authorizations .holds-card { grid-column: 1 / -1; grid-row: 3; }
 }
 @media (min-width: 1100px) {
   .page-authorizations { grid-template-columns: 240px minmax(0, 1fr) 280px; grid-template-rows: auto 1fr; }
@@ -317,7 +328,7 @@ select { appearance: none; padding-right: 40px; background-image: url("data:imag
 .auth-form { padding: var(--s3) var(--s2) var(--s4); }
 @media (min-width: 560px) { .auth-form { padding: var(--s4) var(--s5) var(--s5); } }
 .switch { text-align: center; color: var(--ink-2); }
-.switch a { font-weight: 650; }
+.switch a { font-weight: 650; display: inline-flex; align-items: center; min-height: var(--control); }
 
 /* --------------------------------------------- empty + loading states -- */
 .empty { display: grid; justify-items: center; text-align: center; gap: 4px; padding: var(--s3) var(--s2); color: var(--ink-2); list-style: none; }

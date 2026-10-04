@@ -106,6 +106,19 @@ async function figuresInside(page, detail) {
   });
   return detail ? r : r.every((x) => x.inside);
 }
+// Design rule 2 / PF-A6: every visible control is at least 44 px tall, whatever the pointer.
+// A checkbox counts through its label, which is the 44 px hit area.
+async function shortControls(page) {
+  return page.evaluate(() => Array.from(document.querySelectorAll(
+    'button, a[href], select, input:not([type="checkbox"]):not([type="hidden"]), label.check'))
+    .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && el.offsetParent !== null && !el.closest(".sr-only") && !el.classList.contains("skip"); })
+    .map((el) => ({ el: el.getAttribute("data-testid") || el.className || el.tagName, h: Math.round(el.getBoundingClientRect().height * 10) / 10 }))
+    .filter((x) => x.h < 44));
+}
+// Top-to-bottom order of elements on the page.
+async function stackOrder(page, selectors) {
+  return page.evaluate((sels) => sels.map((s) => { const el = document.querySelector(s); return el ? el.getBoundingClientRect().top + window.scrollY : null; }), selectors);
+}
 async function noHorizontalScroll(page) {
   return page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
 }
@@ -308,6 +321,7 @@ async function run() {
   await waitText(page, "wallet-available", (availHome / 100).toFixed(2) + " EUR");
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "desktop-wallet.png"), fullPage: true });
   check("desktop /: no horizontal scroll", await noHorizontalScroll(page));
+  { const short = await shortControls(page); check("desktop /: every control at least 44 px tall", short.length === 0, short); }
 
   // --------------------------------------------------------- requests --
   await page.goto(BASE + "/requests");
@@ -387,6 +401,13 @@ async function run() {
   const newAuth = await page.locator('[data-testid="authorization-list"] > li').first().getAttribute("data-testid");
   const newAuthId = newAuth.replace("authorization-item-", "");
   check("new hold first in the list, open", (await attr(page, newAuth, "data-status")) === "open");
+  {
+    const listed = (await call("GET", "/authorizations?limit=200", undefined, await login("ada@example.com"))).data.authorizations;
+    const apiIds = listed.map((a) => a.authorization_id);
+    const sortedDesc = listed.every((a, i) => i === 0 || Date.parse(listed[i - 1].created_at) >= Date.parse(a.created_at));
+    const domIds = await page.$$eval('[data-testid="authorization-list"] > [data-testid^="authorization-item-"]', (els) => els.map((e) => e.getAttribute("data-testid").replace("authorization-item-", "")));
+    check("authorization-list children are newest first by created_at, not grouped by status (I-4)", sortedDesc && JSON.stringify(domIds) === JSON.stringify(apiIds), { domIds, apiIds, sortedDesc });
+  }
   await page.click(T("authorization-void-" + newAuthId));
   check("void marks it voided", await page.waitForFunction((s) => document.querySelector(s)?.getAttribute("data-status") === "voided", T(newAuth), { timeout: 4000 * S }).then(() => true, () => false));
   check("void restores available", await page.waitForFunction(([s, v]) => document.querySelector(s)?.getAttribute("data-amount") === v, [T("wallet-available"), avail0], { timeout: 4000 * S }).then(() => true, () => false));
@@ -460,12 +481,24 @@ async function run() {
     await cpage.waitForTimeout(400 * S);
     check("375px " + route + ": no horizontal scroll", await noHorizontalScroll(cpage));
     check("375px " + route + ": current-user visible", await cpage.locator(T("current-user")).isVisible());
+    { const short = await shortControls(cpage); check("375px " + route + ": every control at least 44 px tall", short.length === 0, short); }
+    if (route === "/") {
+      const o = await stackOrder(cpage, [".wallet-panel", "#pay-form", ".activity", "#request-form", "#authorize-form"]);
+      check("375px /: wallet, pay, activity, request, hold order (I-2)", o.every((v, i) => v !== null && (i === 0 || v > o[i - 1])), o);
+    }
+    if (route === "/authorizations") {
+      const o = await stackOrder(cpage, [".wallet-card", ".holds-card", "#authorize-form"]);
+      check("375px /authorizations: holds list before the hold form (I-3)", o.every((v, i) => v !== null && (i === 0 || v > o[i - 1])), o);
+    }
     if (SHOTS) await cpage.screenshot({ path: path.join(SHOTS, "m375" + (route === "/" ? "-wallet" : route.replace("/", "-")) + ".png"), fullPage: true });
   }
   await cpage.click(T("logout-button"));
   await cpage.waitForURL(BASE + "/login");
   check("logout returns to /login", cpage.url() === BASE + "/login");
   check("375px /login: no horizontal scroll", await noHorizontalScroll(cpage));
+  { const short = await shortControls(cpage); check("375px /login: every control at least 44 px tall", short.length === 0, short); }
+  await cpage.goto(BASE + "/signup");
+  { const short = await shortControls(cpage); check("375px /signup: every control at least 44 px tall", short.length === 0, short); }
   if (SHOTS) await cpage.screenshot({ path: path.join(SHOTS, "m375-login.png"), fullPage: true });
   await cpage.goto(BASE + "/");
   await cpage.waitForURL(BASE + "/login");
@@ -475,6 +508,7 @@ async function run() {
     await page.goto(BASE + route);
     await page.waitForTimeout(300 * S);
     check("desktop " + route + ": no horizontal scroll", await noHorizontalScroll(page));
+    { const short = await shortControls(page); check("desktop " + route + ": every control at least 44 px tall", short.length === 0, short); }
   }
 
   // empty states for a fresh user

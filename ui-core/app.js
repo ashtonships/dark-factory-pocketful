@@ -348,7 +348,9 @@
               h("span", { text: p.from_handle }), h("span", { class: "arrow", "aria-label": "to", text: " → " }), h("span", { text: p.to_handle })),
             h("p", { class: "note", "data-testid": "activity-note-" + p.payment_id, text: p.note }),
             h("p", { class: "meta" },
-              h("span", { class: "vis vis-" + p.visibility, text: p.visibility === "private" ? "Private" : "Public" }))),
+              p.visibility === "private"
+                ? h("span", { class: "vis vis-private" }, icon("lock"), "Private")
+                : h("span", { class: "vis vis-public", text: "Public" }))),
           h("div", { class: "feed-side" },
             h("p", { class: "amount", "data-testid": "activity-amount-" + p.payment_id, text: money(p.amount) }),
             h("time", { class: "meta", datetime: p.created_at, text: when(p.created_at) })));
