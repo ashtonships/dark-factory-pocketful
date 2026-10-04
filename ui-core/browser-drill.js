@@ -90,6 +90,22 @@ async function availableIsLargest(page) {
     return { ok: size(hero) > max, hero: size(hero), max };
   });
 }
+// Ledger 9012: the largest legal amounts fit their wallet container, not just the page.
+async function figuresInside(page, detail) {
+  const r = await page.evaluate(() => {
+    const box = document.querySelector("#wallet").closest("section").getBoundingClientRect();
+    return ["wallet-available", "wallet-balance", "wallet-held"].map((id) => {
+      const el = document.querySelector('[data-testid="' + id + '"]');
+      if (!el) return null;
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const rects = Array.from(range.getClientRects());
+      const right = Math.max(...rects.map((x) => x.right)), left = Math.min(...rects.map((x) => x.left));
+      return { id, inside: left >= box.left - 1 && right <= box.right + 1, left, right, boxLeft: box.left, boxRight: box.right };
+    }).filter(Boolean);
+  });
+  return detail ? r : r.every((x) => x.inside);
+}
 async function noHorizontalScroll(page) {
   return page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
 }
@@ -488,10 +504,12 @@ async function run() {
       check(width + "px balance " + balance + ": wallet-balance exact", (await text(bp, "wallet-balance")) === expected && (await attr(bp, "wallet-balance", "data-amount")) === String(balance));
       check(width + "px balance " + balance + ": wallet-available exact", (await text(bp, "wallet-available")) === expected);
       { const r = await availableIsLargest(bp); check(width + "px balance " + balance + ": available still the largest figure", r.ok, r); }
+      check(width + "px balance " + balance + ": / figures stay inside the wallet panel", await figuresInside(bp), await figuresInside(bp, true));
       check(width + "px balance " + balance + ": / has no horizontal scroll", await noHorizontalScroll(bp),
         await bp.evaluate(() => document.documentElement.scrollWidth));
       await bp.goto(BASE + "/authorizations");
       await waitPresent(bp, "wallet-available");
+      check(width + "px balance " + balance + ": /authorizations figures stay inside their card", await figuresInside(bp), await figuresInside(bp, true));
       check(width + "px balance " + balance + ": /authorizations has no horizontal scroll", await noHorizontalScroll(bp),
         await bp.evaluate(() => document.documentElement.scrollWidth));
       if (SHOTS && width === 375) await bp.screenshot({ path: path.join(SHOTS, "m375-max-balance-" + balance + ".png"), fullPage: true });

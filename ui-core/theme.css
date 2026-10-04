@@ -174,7 +174,7 @@ select { appearance: none; padding-right: 40px; background-image: url("data:imag
 .wallet-label { font-size: 1rem; opacity: .9; }
 .amount-hero {
   font-weight: 750; letter-spacing: -.02em; line-height: 1.1; font-variant-numeric: tabular-nums;
-  font-size: clamp(1.625rem, 7.4vw, 3rem); overflow-wrap: break-word; margin-top: 4px;
+  font-size: clamp(1.625rem, 7.4vw, 3rem); overflow-wrap: anywhere; margin-top: 4px;
 }
 /* Phone: the refresh button sits in the corner so the figure gets the full width
    and, at the largest legal balance, wraps only before the currency code. */
@@ -185,7 +185,7 @@ select { appearance: none; padding-right: 40px; background-image: url("data:imag
 }
 .wallet-sub { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s4); margin: 0; min-width: 0; }
 .wallet-sub dt { font-size: .875rem; opacity: .85; display: flex; align-items: center; gap: 6px; }
-.wallet-sub dd { margin: 0; font-size: 1.125rem; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: break-word; }
+.wallet-sub dd { margin: 0; font-size: 1.125rem; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; min-width: 0; }
 .held-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--mauve); display: inline-block; }
 .wallet-panel .held-dot { background: var(--mauve-on-teal); }
 .wallet-panel .wallet-held dd { color: var(--mauve-on-teal); }
@@ -203,13 +203,15 @@ select { appearance: none; padding-right: 40px; background-image: url("data:imag
 }
 
 /* wallet card (holds page): white surface, same hierarchy */
-.wallet-card { display: grid; gap: var(--s2); align-content: start; }
+.wallet-card { display: grid; gap: var(--s2); align-content: start; container-type: inline-size; }
 .wallet-card .wallet-body { display: grid; gap: var(--s2); }
-.wallet-card .amount-hero { color: var(--ink); font-size: 2rem; }
+/* Steps down with the card's width, then wraps inside it; never overflows. */
+.wallet-card .amount-hero { color: var(--ink); font-size: clamp(1.25rem, 15cqi, 2rem); }
 .wallet-card .wallet-label { color: var(--ink-2); order: 2; font-size: .875rem; }
 .wallet-card .wallet-main { display: flex; flex-direction: column; }
 .wallet-card .wallet-sub { flex-direction: column; gap: var(--s1); border-top: 1px solid var(--line); padding-top: var(--s2); }
-.wallet-card .wallet-sub > div { display: flex; justify-content: space-between; gap: var(--s2); align-items: baseline; flex-wrap: wrap; }
+.wallet-card .wallet-sub > div { display: flex; justify-content: space-between; gap: 4px var(--s2); align-items: baseline; flex-wrap: wrap; min-width: 0; }
+.wallet-card .wallet-sub dd { text-align: right; max-width: 100%; }
 .wallet-card .wallet-sub dt { color: var(--ink-2); opacity: 1; font-size: .9375rem; }
 .wallet-card .wallet-sub dd { font-size: 1rem; }
 .wallet-card .wallet-held dd { color: var(--mauve); }
