@@ -208,8 +208,8 @@ def _record(snapshot, generation):
 
 def validate_snapshots(items):
     """The export's `snapshots` value (None: no snapshots) checked and normalized into
-    export-shaped dicts. Raises 422 validation_failed on any bad shape; it never
-    changes the store."""
+    export-shaped dicts. Raises 422 validation_failed on any bad shape or a token
+    repeated within the export; it never changes the store."""
     if items is None:
         return []
     if not isinstance(items, list):
@@ -218,8 +218,8 @@ def validate_snapshots(items):
     for item in items:
         token, user_id, head, entries = _imported(item)
         snapshot = {"token": token, "user_id": user_id, "result": dict(head, entries=entries)}
-        if valid.get(token, snapshot) != snapshot:
-            validation("Conflicting snapshot token")
+        if token in valid:
+            validation("Duplicate snapshot token")
         valid[token] = snapshot
     return list(valid.values())
 
