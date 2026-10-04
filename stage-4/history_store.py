@@ -109,7 +109,7 @@ def validate(conn, now):
         if target is None or target["refund_of"] is not None or payment["from_user_id"]!=target["to_user_id"] or payment["to_user_id"]!=target["from_user_id"] or payment["request_id"] is not None or payment["authorization_id"] is not None or payment["settlement_id"] is not None or payment["note"]!=target["note"] or payment["visibility"]!=target["visibility"] or parse_instant(payment["created_at"])<parse_instant(target["created_at"]):
             validation("Invalid refund linkage")
         refunded[target_id]=refunded.get(target_id,0)+payment["amount"]
-    if any(value>grouped[payment_id][-1]["amount"] for payment_id,value in refunded.items()):
+    if any(value>max(grouped[payment_id],key=lambda revision:revision["revision"])["amount"] for payment_id,value in refunded.items()):
         validation("Refunds exceed corrected payment")
     batches={}
     for revisions in grouped.values():
