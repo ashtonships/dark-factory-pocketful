@@ -382,3 +382,31 @@ def test_stage4_export_import_keeps_snapshots_and_refunds(api):
         assert [x["refund_of"] for x in acts if x["payment_id"] == rf["payment_id"]] == ["p_a"]
     finally:
         other.close()
+
+
+def test_stage3_snapshot_survives_upgrade(api):
+    # ledger: 3045, 3046, D-27 (stage-3 export -> stage-4 import keeps tokens paging their frozen result)
+    url = os.environ.get("PF_STAGE3_URL")
+    if not url:
+        pytest.skip("no PF_STAGE3_URL instance (run_checks starts earlier stages in --repo mode)")
+    old = Api(url)
+    try:
+        old.reset(history_fixture())
+        ada = old.session("ada@example.com")
+        first = ada.get("/statement", params={"limit": 2}).json
+        tok = first["snapshot"]
+        assert correct(ada, "p_a", 400, T1).status == 201
+        snap = old.req("GET", "/_test/export").json
+    finally:
+        old.close()
+    api.reset(history_fixture())
+    assert api.req("POST", "/_test/import", body=snap).status == 204
+    hd = {"Authorization": f"Bearer {ada.token}"}
+    r = api.req("GET", "/statement", headers=hd, params={"snapshot": tok, "limit": 2})
+    assert r.status == 200, r
+    assert r.json["entries"] == first["entries"] and r.json["closing_balance"] == 10000 and r.json["has_more"] is True
+    live = api.req("GET", "/statement", headers=hd).json
+    assert live["closing_balance"] == 10600
+    api.reset(history_fixture())
+    ada2 = api.session("ada@example.com")
+    assert is_error(ada2.get("/statement", params={"snapshot": tok}), 404, "not_found")
