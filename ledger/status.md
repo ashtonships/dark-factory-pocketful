@@ -5,9 +5,9 @@ Updated by Coordinator. Ledger: `ledger/pocketful.md`. Time box: final report by
 | Stage | State | Accepted revision | Gate receipt |
 |---|---|---|---|
 | 1 | ACCEPTED, FROZEN: GATE GREEN #4 at 57cc82e (stage-1 tree 8f19cbfb6d7e), harness s1 146/147 (1 reset ReadTimeout at load ~290), Checker 234/234; main ef11f77 + receipt fa85767; Sat 22:10 (ledger 273/273 sentences, 251 entries + 22 waivers + 9001–9003) | — | — |
-| 2 | in progress: W-8 server on builder (cd4efc0 copy = frozen tree), W-7 screens to the design pick (ledger/design-pick.md: Home C, Requests A, Split A, Auth C, Holds A) | — | — |
-| 3 | not started | — | — |
-| 4 | not started | — | — |
+| 2 | ACCEPTED, FROZEN: GATE GREEN #6 at bc4cc1c (stage-2 tree ad34602f4b70), harness s1 147/147 + s2 35/35, Checker 329/329, load ~5; interface PASS (1017-1027); main abf639b + receipt 7c52233; Sun 01:45 | bc4cc1c | #6 |
+| 3 | in progress from 01:50: W-9 Builder (copy, history.py, writes), W-10 Builder-Two (statement.py, reads) | — | — |
+| 4 | CUT: stage 3 cannot be accepted by Sun 04:00 (cut rule) | — | — |
 
 | Item | Seat | State | Entries | Evidence |
 |---|---|---|---|---|
@@ -50,3 +50,4 @@ Updated by Coordinator. Ledger: `ledger/pocketful.md`. Time box: final report by
 - Stage-3 checks on main 2bba408 (W-9 36, W-10 30), not in force.
 - 01:00: stage-2 gate requested at 78cfc4e (builder-two merge of W-8 c7b6c05 onto W-7 7223619; stage-1 tree 8f19cbfb6d7e, stage-2 tree 61e7f3da80ff). PF-A6 closed; PF-A7 fixed, with independent confirmation pending.
 - GATE RED #5 stage 2 at 78cfc4e (receipt line 5, main 0a210dd): one high overfit token, '300' (the HTTP 2xx bound) at ui/pocketful-core.js:280. Checker's own run of 78cfc4e: 321/321 at load about 9; final interface judgement on 1017-1027 PASS (I-1 not visible in fixtures; cosmetic). Builder-Two is fixing the literal. Coordinator runs the overfit scan before the regate, because builders must not read the shipped tests.
+- Stage 2 accepted at 01:45 (GATE GREEN #6). Stage 3 dispatched; Adversary queue: stage-1 attack, stage-2 attack, seeded faults (seed 2), stage-3 pre-mortem. Stage 4 cut by rule.
