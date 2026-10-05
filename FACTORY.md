@@ -207,6 +207,32 @@ Builder 28.8%, Builder-Two 28.0%, Checker 20.7%, Coordinator 3.4%.
   real green before the dispatch, so under our own cut rule it is switched off. `gate.py verify` reports such a merge
   after the fact instead.
 
+## After the run: the two failures, fixed
+
+Both tools below were written after the submitted run, on 5 Oct, and were not part of it. They are read-only, and
+each is replayed on this run's own `room.json` and session logs (`measurements/liveness-replay.md`,
+`measurements/model-pin-replay.md`; tests in `tools/tests/`).
+
+**A silent seat stalled the band (stage 4 was never accepted).** `tools/liveness.py` reads the room (`room.json`, or
+saved `band room messages --json` pages) and reports a stall when the whole room has been quiet for 30 minutes while
+a seat still owes a reply. A seat owes a reply from the first text that addresses it until it next posts a text. A
+seat waiting while others work is not a stall. Replayed on this run, it reports three stalls, all real. The first is
+the 2 h 37 min start-up stall, reported 31 minutes after the dispatch. The second is a 30-minute quiet room at 00:18
+UTC Sunday. The third is the fatal one: the room went quiet at 08:16 UTC with the Adversary holding W-12's review,
+and it is reported at 08:46 UTC, 10 h 14 min before the band's own cut (D-26, 19:00 UTC). Telling the band is the
+part not built yet. In the next version a non-model Band seat (a "timekeeper") runs it every minute and posts the
+stall to @Coordinator, so recovery stays inside the band and adds no human input. Creating that seat's Band identity
+is an owner step, so it was not done for this entry.
+
+**Seats ran on the wrong model, and nobody in the factory saw it.** `tools/model_pin.py` reads each mandate's
+`Model:` line, then every turn each seat ran (seat_usage.py's readers), and exits 1 on any turn that used another
+model. It also lists room errors that reject a model. Replayed on this run, it reports exactly the three gpt-6-sol
+turns disclosed above (Builder 2,620 and 44,505 output tokens, Adversary 178). It also shows why they happened: at
+20:05 UTC both Codex seats' first gpt-6.1-sol requests failed in the room with "The 'gpt-6.1-sol' model is not
+supported when using Codex with a ChatGPT account". Run by the Checker before every gate (`model_pin.py --since
+<last receipt>`), it would have refused gate #1 until the pin held. The operator only found the turns at 20:40 UTC,
+from the logs.
+
 ## Standing it up
 
 1. Install Band Desktop and sign in. Create five local-agent seats named as in the table, each with its harness and
