@@ -58,10 +58,22 @@ def room_model_errors(path: Path) -> list[dict]:
     for raw in rows:
         kind = raw.get("messageType") or raw.get("message_type")
         text = raw.get("content") or ""
-        if kind == "error" and MODEL_ERROR.search(text):
+        # Band records a failed turn twice: an `error` message and a `task` event whose text starts "error:".
+        failed = kind == "error" or (kind == "task" and text.startswith("error:"))
+        if failed and MODEL_ERROR.search(text):
             out.append({"at": raw.get("insertedAt") or raw.get("inserted_at"),
                         "seat": raw.get("senderName") or raw.get("sender_name"), "error": text[:200]})
-    return sorted(out, key=lambda row: row["at"] or "")
+    out.sort(key=lambda row: row["at"] or "")
+    unique = []  # one row per failure: drop the twin recorded within 30 s by the same seat
+    for row in out:
+        if unique and unique[-1]["seat"] == row["seat"] and _seconds(unique[-1]["at"], row["at"]) <= 30:
+            continue
+        unique.append(row)
+    return unique
+
+
+def _seconds(earlier: str, later: str) -> float:
+    return (seat_usage.parse_time(later) - seat_usage.parse_time(earlier)).total_seconds()
 
 
 def main(argv: list[str] | None = None) -> int:

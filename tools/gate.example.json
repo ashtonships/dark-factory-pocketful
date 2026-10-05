@@ -1,0 +1,27 @@
+{
+  "track": "<TRACK>",
+  "harness_dir": "<KIT>",
+  "python": "<KIT>/.venv/bin/python",
+  "spec": "<SPEC>",
+  "shipped_tests": "<KIT>/<TRACK>/test",
+  "checks_out": "<CHECKS>",
+  "checker_command": ["{python}", "{checks}/checker/run_checks.py", "--repo", "{checkout}", "--stage", "{stage}", "--out", "{out}/checker"],
+  "overfit_allow": [],
+  "lock": "<LOCK-DIR>",
+  "harness_timeout": 3600,
+  "checker_timeout": 3600,
+  "_doc": {
+    "_file": "Copy to tools/gate.json and replace every <PLACEHOLDER> with an absolute path. gate.py reads tools/gate.json from the --checks-rev commit (default main), never from the branch being judged; --config overrides the path. gate.py ignores keys it does not know, including this _doc object. Required: track, harness_dir, python, spec, shipped_tests, checker_command.",
+    "track": "Required. The harness track name, passed as `harness run --track`; also recorded in every receipt and available to checker_command as {track}.",
+    "harness_dir": "Required. The event kit folder: the gate runs `python -m harness run` and the mandate/credential scan (`from harness import check, vocabulary`) with this as the working directory; available as {harness}.",
+    "python": "Required. The interpreter with the harness installed (the kit's .venv); runs the mandate scan and the harness, and is {python} in checker_command.",
+    "spec": "Required. The specification folder the test-fitting scan (overfit_scan.py --spec) treats as the source of allowed tokens.",
+    "shipped_tests": "Required. The kit's shipped-test folder for the track; overfit_scan.py flags tokens found here and in stage-N/ but not in the spec.",
+    "checks_out": "Optional. Where each run's evidence goes, as <checks_out>/gate-s<N>-<rev10>-<time>/ (logs, overfit.json, harness/, checker/, receipt.json). Default: a `checks` folder beside the main checkout. On macOS keep it under the home folder, because Docker must mount the harness output folder.",
+    "checker_command": "Required. The argv (a list, no shell) of the Checker's own checks, run with the clean checks checkout as working directory. Each element is filled with str.format from {python}, {checkout} (clean product clone at --rev), {checks} (clean clone at --checks-rev), {stage}, {out} (this run's evidence folder), {track}, {harness} and {tools} (the gate's own tools folder). Green needs exit 0 and at least one test with no failures or errors, counted from JUnit XML anywhere under {out}/checker, else from a pytest summary line on stdout.",
+    "overfit_allow": "Optional, default empty. A list of {\"token\": \"...\", \"reason\": \"...\"}; a high-severity test-fitting finding on that exact token is not blocking. An entry without a reason is ignored.",
+    "lock": "Optional. The check-lock directory, taken with an atomic mkdir and a holder file (pid, time) inside it; the gate waits up to 45 minutes. If absent, gate.py uses the CHECK_LOCK environment variable, then $HOME/DarkFactory/.check-lock. A gate started under a wrapper that already holds the same lock (the holder pid is an ancestor) inherits it instead of waiting. Every tool that takes the lock must name the same directory.",
+    "harness_timeout": "Optional, seconds, default 3600. Kills the isolated harness step after this long (exit 124, red).",
+    "checker_timeout": "Optional, seconds, default 3600. Kills the checker_command step after this long (exit 124, red)."
+  }
+}

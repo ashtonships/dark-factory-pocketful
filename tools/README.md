@@ -2,12 +2,43 @@
 
 These Python 3 standard-library tools help audit the ledger, checker references,
 possible test fitting, and a sampled set of product faults. Their JSON output is a
-trace for review, not proof that the factory met its specification. The examples use
-local fixtures; their numbers must not appear as results of a factory run.
+trace for review, not proof that the factory met its specification.
 
-Run `python3 factory/tools/<tool>.py --help` for current CLI options. The tools use
+Every command below runs from the repository root. Paths outside this repository use
+placeholders: `<KIT>` is the event kit (harness, `<KIT>/<track>/spec`,
+`<KIT>/<track>/test`), `<WORKSPACE>` is the seats' common working directory (the
+parent of the result repository), and `<CHECKS>` is a scratch folder for output. The
+examples use this run's own `room.json`, `ledger/`, `checker/`, `receipts/` and
+`stage-1/`, so their output reproduces `measurements/`; with `<track>` = `pocketful`
+they reproduce this run.
+
+Run `python3 tools/<tool>.py --help` for current CLI options. The tools use
 paths supplied by the caller, do not need network access, and do not write to the
 input product.
+
+| Tool | What it answers | When |
+|---|---|---|
+| `gate.py` | is this exact commit acceptable for stage N? (receipt chain, freeze rule) | every acceptance; config in `gate.json`, documented in `gate.example.json` |
+| `spec_coverage.py` | does every specification sentence have a ledger entry and a check reference? | each stage, final report |
+| `overfit_scan.py` | does product code reuse shipped-test literals? | inside every gate run |
+| `seeded_faults.py` | do the checks catch small planted faults? | after a stage is accepted |
+| `room_audit.py` | human messages after the dispatch; builder reads of the shipped tests | after the run |
+| `factory_numbers.py` | commits, shares, stage timing, receipts, handoffs | after the run |
+| `seat_usage.py` | tokens per seat and model, from local session logs | after the run |
+| `liveness.py` | which seat owes a reply while the room is silent | during the run (added after the submitted run) |
+| `model_pin.py` | did every seat run on its mandate's model? | during the run, before each gate (added after the submitted run) |
+
+## The gate
+
+`gate.py` and its config are described in its own docstring (`python3 tools/gate.py --help`)
+and, key by key, in `gate.example.json`; copy that file to `gate.json` and fill it in.
+
+```sh
+python3 tools/gate.py run --stage 1 --rev <commit>            # a stage acceptance
+python3 tools/gate.py run --stage 2 --rev <commit> --level item  # a work item inside stage 2
+python3 tools/gate.py show --last 5
+python3 tools/gate.py verify                                   # chain intact; every stage tree main held had a green receipt
+```
 
 ## Spec ledger and check references
 
@@ -26,16 +57,14 @@ headline counts obligations with a matching ledger entry that has a checker-auth
 reference; it is a check-reference rate, not verified behavioral coverage.
 
 ```sh
-python3 factory/tools/spec_coverage.py \
-  --spec factory/tools/tests/fixtures/toy_spec \
-  --ledger factory/tools/tests/fixtures/toy_ledger.md \
-  --evidence-csv factory/tools/tests/fixtures/toy_evidence.csv \
-  --format both
+python3 tools/spec_coverage.py \
+  --spec <KIT>/<track>/spec \
+  --ledger ledger/<track>.md \
+  --checks checker \
+  --format markdown
 ```
 
-For that toy input, ledger completeness is 3/4; the CSV asserts references for
-2/3 entries, while checker-authored check-reference coverage is 0/3 and the
-obligation headline is 0/4. The CSV cannot establish authorship.
+`--evidence-csv FILE` may replace `--checks`; such a CSV cannot establish authorship.
 
 For a real run, point `--checks` at the checker's committed files and inspect Git
 provenance. Untracked files, hidden folders, and files with any non-Checker author
@@ -54,11 +83,14 @@ example or flag legitimate product behavior. In particular, a special case using
 value already present in the spec is outside its detection method.
 
 ```sh
-python3 factory/tools/overfit_scan.py \
-  --spec /path/to/spec \
-  --tests /path/to/shipped-tests \
-  --product /path/to/product
+python3 tools/overfit_scan.py \
+  --spec <KIT>/<track>/spec \
+  --tests <KIT>/<track>/test \
+  --product stage-1
 ```
+
+The gate runs exactly this on `stage-N/` and is red on any `high` finding whose token
+`gate.json`'s `overfit_allow` does not list with a reason.
 
 Read the surrounding code and the source requirement before deciding any finding.
 
@@ -71,11 +103,15 @@ runs an optional build command before each test command, and rechecks the baseli
 Use `{product}` in an argv element if a command needs the absolute copy path.
 
 ```sh
-python3 factory/tools/seeded_faults.py \
-  --product factory/tools/tests/fixtures/toy_product \
-  --seed 42 --count 6 --timeout 60 \
-  --test-command python3 "$PWD/factory/tools/tests/fixtures/check_counter.py"
+python3 tools/seeded_faults.py \
+  --product stage-1 \
+  --seed 42 --count 6 --timeout 900 \
+  --test-command <KIT>/.venv/bin/python "$PWD/checker/run_checks.py" \
+    --stage-dir {product} --stage 1 --out <CHECKS>/mutants
 ```
+
+This scores the Checker's own checks: `run_checks.py --stage-dir` builds and starts the
+mutated copy in Docker, so each mutant takes minutes. Hold the check lock while it runs.
 
 For any non-Python mutation, pass `--build-command` as one quoted command string,
 such as `--build-command 'node --check index.js'`. Without it, the tool returns
@@ -94,7 +130,7 @@ before deciding what additional checks are needed.
 
 ## Recording a real run
 
-Save the three JSON outputs outside any deliverable folder. In `factory/FACTORY.md`,
+Save the three JSON outputs outside any deliverable folder. In `FACTORY.md`,
 record the product and checker revisions, exact commands, checker test results, manual
 waiver review, scanner decisions, valid mutation denominator, invalid count, and
 survivors. Do not label a reference rate as behavioral coverage or a compile failure
@@ -103,8 +139,12 @@ as a caught behavioral fault.
 Run the tool regression suite with:
 
 ```sh
-python3 -m unittest discover -s factory/tools/tests
+python3 -m unittest discover -s tools/tests
 ```
+
+Only `liveness.py` and `model_pin.py` have tests in this repository (`tools/tests/`).
+The other tools' regression tests and fixtures stayed with the factory's source and
+were not copied here.
 
 ## `room_audit.py`
 
@@ -117,15 +157,16 @@ JSON strings inside JSON strings. A reference to a forbidden path is counted wit
 inferring what the tool actually read or why it was called.
 
 ```sh
-python3 room_audit.py room.json \
-  --forbidden /abs/pkg/track/test \
+python3 tools/room_audit.py room.json \
+  --forbidden <KIT>/<track>/test \
   --forbidden-regex '\btest/stage_\d' \
+  --builder Builder --builder Builder-Two \
   --format markdown
 ```
 
-Run from `factory/tools/`. JSON is the default output. At least one absolute
+JSON is the default output. At least one absolute
 `--forbidden` directory is required by the CLI. Both absolute and `~/` spellings of
-a configured `/Users/<name>/...` path match. `--fail-on-reads` and `--fail-on-human`
+a configured path under the home folder match. `--fail-on-reads` and `--fail-on-human`
 return 1 when their count is positive; a completed audit otherwise returns 0, and
 unreadable or malformed input returns 2. The importable `load_messages(paths)` and
 `audit(messages, forbidden, forbidden_regex, builders)` functions do not write files.
@@ -140,14 +181,16 @@ accompanies the totals. All commands are local and read-only; the tool disables 
 lazy fetching and optional locks and writes its report to stdout.
 
 ```sh
-python3 factory_numbers.py --repo /path/to/result --branch main \
+python3 tools/factory_numbers.py --repo . --branch main \
   --room room.json \
-  --receipts /path/to/result/receipts/chain.jsonl \
-  --refusals /path/to/result/receipts/refusals.jsonl \
-  --forbidden /abs/pkg/track/test \
-  --attach coverage=coverage.json \
+  --receipts receipts/chain.jsonl \
+  --forbidden <KIT>/<track>/test \
+  --builder Builder --builder Builder-Two \
   --format markdown
 ```
+
+Add `--refusals receipts/refusals.jsonl` when the freeze hook wrote one, and
+`--attach NAME=FILE.json` to carry another tool's JSON report along.
 
 Only `--repo` is required; the default branch is `main` and the default format is
 JSON. Optional files are read only when supplied. An absent receipt chain has
@@ -183,8 +226,46 @@ non-merge commit subject names an extracted work-item id; its matching commits a
 listed. Attachments retain the parsed JSON unchanged under
 `attachments.NAME.document`, with the original file's SHA256 and path alongside it.
 
-Run all tool tests from this folder:
+## `seat_usage.py`
+
+Tokens per seat and model from the local Claude Code transcripts and Codex rollouts of
+sessions inside `--cwd`, attributed to a seat by its mandate heading. Only the machine
+that ran the seats can reproduce it.
 
 ```sh
-python3 -m unittest discover -s tests
+python3 tools/seat_usage.py --cwd <WORKSPACE> \
+  --since 2026-10-03T16:49:58Z --until 2026-10-04T08:20:00Z --format markdown
 ```
+
+## `liveness.py` (added after the submitted run)
+
+Which seat owes the band a reply and has gone silent. A seat owes a reply from the first
+text message that mentions it (the dispatch counts) until it next posts a text. A stall
+is reported only when the whole room has been quiet for `--silence` minutes (default 30)
+while a seat still owes a reply, and names the seat's last error when that is what it
+last sent. It was written on 5 Oct, after the run, because a seat whose turns kept
+ending in a provider refusal held the last review of stage 4 and nobody noticed. Read-only.
+
+```sh
+python3 tools/liveness.py room.json                              # replay: every stall and when it would have been reported
+python3 tools/liveness.py room.json --at 2026-10-04T09:00Z       # state at one moment; exit 1 while a seat is stalled
+```
+
+During a run, save the room's pages with `band room messages <ROOM> --json --page N`
+and pass the files instead of `room.json`; a non-model watcher can run it every minute
+and post the stall to the Coordinator. Replay output for this run:
+`measurements/liveness-replay.md`.
+
+## `model_pin.py` (added after the submitted run)
+
+Did every seat run on the model its mandate's `Model:` line names? It reads every turn of
+each seat (through `seat_usage.py`'s readers) and exits 1 on any turn on another model;
+`--room` also lists room errors that reject a model. It was written on 5 Oct, after the
+run, because three Codex turns ran on an unpinned model and only the operator saw it.
+
+```sh
+python3 tools/model_pin.py --cwd <WORKSPACE> --since <time of the last receipt> --room room.json
+```
+
+The Checker can run it before every gate. Replay output for this run:
+`measurements/model-pin-replay.md`.

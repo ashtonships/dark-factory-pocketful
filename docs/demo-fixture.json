@@ -1,0 +1,140 @@
+{
+ "currency": "EUR",
+ "minor_units": 2,
+ "authorization_ttl_seconds": 600,
+ "users": [
+  {
+   "id": "u_ada",
+   "email": "ada@example.com",
+   "password": "correct horse",
+   "display_name": "Ada Brennan",
+   "handle": "ada",
+   "balance": 24350
+  },
+  {
+   "id": "u_bob",
+   "email": "bob@example.com",
+   "password": "correct horse",
+   "display_name": "Bob Okafor",
+   "handle": "bob",
+   "balance": 8000
+  },
+  {
+   "id": "u_cy",
+   "email": "cy@example.com",
+   "password": "correct horse",
+   "display_name": "Cy Halvorsen",
+   "handle": "cy",
+   "balance": 5000
+  },
+  {
+   "id": "u_eve",
+   "email": "eve@example.com",
+   "password": "correct horse",
+   "display_name": "Eve Lindqvist",
+   "handle": "eve",
+   "balance": 0
+  }
+ ],
+ "payments": [
+  {
+   "id": "p_1",
+   "from_user_id": "u_ada",
+   "to_user_id": "u_bob",
+   "amount": 1250,
+   "note": "Coffee and croissants",
+   "visibility": "public",
+   "created_at": "2026-10-05T14:14:58Z"
+  },
+  {
+   "id": "p_2",
+   "from_user_id": "u_cy",
+   "to_user_id": "u_ada",
+   "amount": 4000,
+   "note": "Concert tickets",
+   "visibility": "private",
+   "created_at": "2026-10-05T16:57:58Z"
+  },
+  {
+   "id": "p_3",
+   "from_user_id": "u_ada",
+   "to_user_id": "u_cy",
+   "amount": 875,
+   "note": "",
+   "visibility": "public",
+   "created_at": "2026-10-05T19:40:58Z"
+  }
+ ],
+ "requests": [
+  {
+   "id": "rq_1",
+   "requester_id": "u_bob",
+   "payer_id": "u_ada",
+   "amount": 1200,
+   "note": "Taxi home",
+   "status": "pending"
+  },
+  {
+   "id": "rq_2",
+   "requester_id": "u_ada",
+   "payer_id": "u_cy",
+   "amount": 3000,
+   "note": "Groceries",
+   "status": "pending"
+  },
+  {
+   "id": "rq_3",
+   "requester_id": "u_cy",
+   "payer_id": "u_ada",
+   "amount": 500,
+   "note": "Parking",
+   "status": "declined"
+  }
+ ],
+ "authorizations": [
+  {
+   "id": "a_1",
+   "from_user_id": "u_ada",
+   "to_user_id": "u_bob",
+   "amount": 5000,
+   "note": "Flat deposit",
+   "visibility": "private",
+   "status": "open",
+   "expires_at": "2026-10-06T02:11:04+00:00",
+   "created_at": "2026-10-05T22:34:58Z"
+  },
+  {
+   "id": "a_2",
+   "from_user_id": "u_cy",
+   "to_user_id": "u_ada",
+   "amount": 2000,
+   "note": "Bike rental",
+   "visibility": "public",
+   "status": "open",
+   "expires_at": "2026-10-06T04:11:04+00:00",
+   "created_at": "2026-10-05T22:09:58Z"
+  },
+  {
+   "id": "a_3",
+   "from_user_id": "u_ada",
+   "to_user_id": "u_cy",
+   "amount": 1500,
+   "note": "Ski pass",
+   "visibility": "public",
+   "status": "captured",
+   "expires_at": "2026-10-05T21:11:04+00:00",
+   "created_at": "2026-10-05T21:44:58Z"
+  },
+  {
+   "id": "a_4",
+   "from_user_id": "u_bob",
+   "to_user_id": "u_ada",
+   "amount": 900,
+   "note": "Old hold",
+   "visibility": "public",
+   "status": "expired",
+   "expires_at": "2026-10-05T20:11:04+00:00",
+   "created_at": "2026-10-05T21:19:58Z"
+  }
+ ]
+}

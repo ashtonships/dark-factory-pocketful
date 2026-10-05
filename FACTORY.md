@@ -15,9 +15,10 @@ the raw outputs are in [`measurements/`](measurements/).
 | Stages reached | **1, 2 and 3**, each accepted by a green gate receipt and frozen. Stage 4 was built but never accepted before the band's own cut-off, so it is not submitted (see *What failed*) |
 | Event harness, fresh clone of `main`, isolated mode | stage-1/ claims 1, stage-2/ claims 2, stage-3/ claims 3. Each folder passes every earlier suite (147/147, 35/35, 6/6) and fails the next stage's suite (stage-1/ on suite 2: 0/35; stage-2/ on suite 3: 2/6; stage-3/ on suite 4: 0/5), so none overshoots (`measurements/harness-isolated/`) |
 | Gate receipts | 9 (4 green, 5 red); `python3 tools/gate.py verify` → "receipts: 9 verified (4 green, 5 red)" and "verify: ok" over every first-parent commit on `main` |
-| Human input after the dispatch | **0 messages**. The dispatch was the only human message in the room (`tools/room_audit.py`) |
+| Human input after the dispatch | **0 messages**. The dispatch was the only human message in the room (`tools/room_audit.py`). The operator did take infrastructure actions outside the room (seat restarts, a model pin); every one is listed with its time in *Operator actions during the run* |
+| Spec coverage | Every one of stages 1–3's 611 specification sentences is in the ledger, and 559 of their 572 obligations (98%) have a check the Checker wrote from the specification, against 188 shipped checks (`measurements/spec_coverage.md`) |
 | Builder tool calls touching the shipped tests | **0** (`tools/room_audit.py`, over 1,224 builder tool calls) |
-| Wall-clock | Dispatch Sat 3 Oct 16:49:58 UTC. The Coordinator's first action came at about 19:27 UTC, because the seats could not start until then (see *What failed*). Stage 1 went green at 02:59 UTC, stage 2 at 06:09 and stage 3 at 07:18. The last commit was at 08:16 UTC |
+| Wall-clock | Dispatch Sat 3 Oct 16:49:58 UTC. The Coordinator's first action came at about 19:27 UTC, because the seats could not start until then (see *What failed*). Stage 1 went green at 02:59 UTC, stage 2 at 06:09 and stage 3 at 07:18. The last room message was at 08:16 UTC. The band then stalled (see *What failed*), so **no final report was posted** |
 | Model spend | 1.46 M output tokens and 3.37 M uncached input tokens (the five seats plus 14 unattributed Claude sessions in their folder; table below) |
 
 ## The idea in one paragraph
@@ -83,7 +84,7 @@ toy practice track first; that run is not submitted and its evidence is not in t
 
 | Catch | Stage | Written by | Caught by | What happened |
 |---|---|---|---|---|
-| Duplicate token inside one export imported with 204 instead of 422 | 3 (re-gate) | Builder-Two (Claude) | Checker's checks, via the gate | GATE RED #8 at 2132717 (Checker 410/411, shipped suites all green). Builder-Two fixed it in a3f0daa (stage 3) and 06d4eea (stage 4, statement.py only in each); receipt #9 tested 06d4eea, and GATE GREEN #9 followed **14 min 44 s** later. The shipped tests passed the broken build; only the Checker's spec-derived check saw it |
+| Duplicate token inside one export imported with 204 instead of 422 | 3 (re-gate) | Builder-Two (Claude) | Checker's checks, via the gate | GATE RED #8 at 2132717 (Checker 410/411, shipped suites all green). Builder-Two fixed it in a3f0daa (stage 3) and 06d4eea (stage 4, statement.py only in each); receipt #9 tested 06d4eea, and GATE GREEN #9 followed **14 min 44 s** later. The shipped tests passed the broken build; only the Checker's spec-derived check saw it. **The fix is gated but not on `main`:** the Checker held the merge for the stage-4 gate, and the band stalled before it. `main`'s stage-3 is still receipt #7's tree, which accepts a repeated token within one export |
 | A settlement change that contradicted an accepted decision (malformed batches 400 instead of 422, D-9) | 2 | Builder (Codex) | Coordinator, before the gate | 80c511a was reverted at the Coordinator's request (124477e). Bad work never reached the gate |
 | Four interface defects in the stage-2 screens (PF-A1 to PF-A4), then PF-A6 and PF-A7 | 2 | Builder-Two (Claude) | Adversary (Codex) code review | Each became a ledger entry, was fixed (93f3606, f220845, 7223619) and was re-reviewed. The Adversary's pinned-browser review went from 10/14 to 32/32 |
 | 50 concurrent logins slowest at 6.09 s against a 5 s requirement | 1 | Builder | Checker's checks, via the gate | GATE RED #3 rejected 1f882ff, which had already bounded login cost. Builder then cut new hashes to 5,000 iterations (86a0196), and GATE GREEN #4 followed |
@@ -103,6 +104,12 @@ table above was checked against the room by hand.
 | Checker's own checks at the green receipt | 234/234 | 329/329 | 397/397 (411/411 at the later re-gate) |
 | Checker checks per shipped check, cumulative | 1.6× | 1.8× | 2.1× |
 
+On a fresh clone tonight, on a quiet machine, the shipped suites pass 147/147, 182/182 and 188/188 (`harness run --all --mode isolated`).
+
+**Spec coverage beyond the shipped checks** (`measurements/spec_coverage.md`): stages 1–3 have 611 specification sentences. All of them are in the ledger, 39 as waivers for sentences with no behaviour. Of the 572 obligations, 559 (98%) have at least one check the Checker wrote from the specification: 246 of 252 for stage 1, 204 of 211 for stage 2 and 109 of 109 for stage 3.
+
+**Reproducing the Checker's numbers.** Rerun the Checker's suite at each receipt's `checks_rev`, not at `main`'s head. At the head, `checker/items.json` also binds W-13 (the D-27 snapshot amendment) to stage 3. That amendment is on the builder branches only, so the head suite would fail `main`'s stage-3 on those checks. Receipt #7's `checks_rev` is a48ed06, and there the suite is 397/397 on `main`'s stage-3.
+
 Source: `receipts/chain.jsonl` lines 4, 6 and 7 (`python3 tools/gate.py show`). The stage-3 suite that shipped has 6
 checks. The Checker wrote 65 for that stage's two work items and 6 more in its final review.
 
@@ -110,7 +117,7 @@ checks. The Checker wrote 65 for that stage's two work items and 6 more in its f
 mutants (65%) using Builder-Two's own 38-case self-test, because the Checker had no W-5 check yet, so it measures
 the builder's self-test, not the Checker's suite. One survivor exposed a real blind spot in the self-test (key generation from different entropy). It
 was sent back as a test gap; the product was correct. Two runs on W-6 gave no valid score because the browser
-baseline was too slow or unstable on the loaded machine. We report them as null, not as a rate. (The practice run's mutation results are not evidenced in this repository.)
+baseline was too slow or unstable on the loaded machine. We report them as null, not as a rate. The practice run's mutation results are not evidenced in this repository.
 
 ## Why this shape, and what it costs
 
@@ -120,14 +127,14 @@ baseline was too slow or unstable on the loaded machine. We report them as null,
 - **Tests from the specification, by a different seat and model family,** catch the builder's blind spots instead
   of repeating them. The cost is reading the specification twice. In this run the Checker produced 22% of the output
   tokens.
-- **Acceptance by program, not by message.** A receipt is rerunnable and tamper-evident, and `gate.py verify`
+- **Acceptance by program, not by message.** Each receipt holds the sha256 of the one before it, so editing, removing or reordering a receipt breaks the chain unless every later receipt is rewritten too. The chain is not signed. The gate run itself is rerunnable with the event kit. And `gate.py verify`
   re-checks from a clone that the chain is intact and that every stage-tree change in `main`'s first-parent history
   matches a recorded green receipt (it does not rerun the tests; the receipts record those runs). The cost is that every acceptance runs the full harness
   and the Checker's suite: about 5 minutes a gate run at normal load, and 18–36 minutes on the overloaded machine, and that a false positive in the gate costs a rewrite (see below).
 - **An adversary that attacks only accepted work** keeps rejection meaningful: findings are grounded in requirements
   and reproducible. The cost is a seat that writes no product code.
 - **Two builders on separate layers** spread the work: of all lines added in `main`'s history (code, tests, ledgers and
-  copied stage folders alike), Builder accounted for 28.8% and Builder-Two 28.0%. The cost is integration, which the Checker's merge-and-recheck absorbs.
+  copied stage folders alike), Builder accounted for 28.8% and Builder-Two 28.0% (at the run's last commit, 02600fb: `measurements/factory_numbers-run-end.md`). The cost is integration, which the Checker's merge-and-recheck absorbs.
 - **Blind building** costs the builders the convenience of green tests, and removes the most common way an entry is
   disqualified: code written to the tests.
 
@@ -144,24 +151,38 @@ Tokens per seat from the dispatch to the last activity, read from the seats' own
 | Builder-Two | Claude Code | claude-opus-5-5 (364) | 730 | 1,134,229 | 81,029,978 | 382,602 |
 | Checker | Claude Code | claude-opus-5-5 (352) | 720 | 1,347,259 | 84,933,488 | 319,648 |
 | Adversary | Codex | gpt-6.1-sol (29), gpt-6-sol (1) | 1,397,124 | n/a | 35,424,000 | 157,155 |
-| Claude sessions in the seats' folder with no seat name (their relation to the seats is not recorded) | Claude Code | claude-opus-5-5 (42) | 84 | 376,688 | 919,708 | 13,633 |
+| Automated security reviews of the Claude seats' commits: 14 sessions from the operator's machine-wide Claude Code commit hook (prompt "Review this change for security vulnerabilities"), started by the seats' own commits in their worktrees. Set up before the run; no person involved | Claude Code | claude-opus-5-5 (42) | 84 | 376,688 | 919,708 | 13,633 |
 | **Total** | | | 3,371,926 | 3,718,598 | 338,295,673 | 1,459,552 |
 
 - **Wrong-model turns, disclosed.** Three Codex turns ran on `gpt-6-sol` instead of the mandated `gpt-6.1-sol`:
   Builder 19:57–20:02 UTC (2,620 output tokens) and 20:06–20:37 UTC (44,505), and Adversary at 20:03 UTC (178).
-  That is 47,303 output tokens, 3.2% of the run. We believe older Band sessions still held the old default model
-  (operator diagnosis, not recorded in this repository). Every Codex session was pinned to `gpt-6.1-sol`, and every Codex turn from 20:38 UTC onward ran on it.
+  That is 47,303 output tokens, 3.2% of the run. Band sends a model with every turn, and the seats' older Band sessions still held the old default model (operator diagnosis from the session settings, not recorded in this repository). The operator then pinned every Codex session to `gpt-6.1-sol` (see *Operator actions during the run*). From 20:38 UTC every Codex turn ran on it.
 - **Proving against building:** the Checker and Adversary produced 476,803 output tokens and the two builders 732,790,
   a ratio of 0.65.
 - Operator-reported: all seats ran on flat-rate Claude and ChatGPT subscription plans with no metered API keys, so the
-  run added no per-token bill. The token counts themselves are measured. The tokens are measured, not estimated.
+  run added no per-token bill. The token counts themselves are measured, not estimated.
 - **Time per stage:** stage 1 took 7 h 33 min from the Coordinator's first action to its green receipt. That
   includes three red receipts on a machine at load 140–520 (other workloads ran on it). Stage 2 took 3 h 10 min more
   and stage 3 another 1 h 9 min.
 
 Commits on `main` by author (`tools/factory_numbers.py`, non-merge): Coordinator 42, Checker 27, Builder 17,
 Builder-Two 14, the shared default identity "Dark Factory band" 20, and the one setup commit. Added-line share:
-Builder 28.8%, Builder-Two 28.0%, Checker 20.7%, Coordinator 3.4%.
+Builder 28.8%, Builder-Two 28.0%, Checker 20.7%, Coordinator 3.4%. These are measured at the run's last commit, 02600fb (`measurements/factory_numbers-run-end.md`). `measurements/factory_numbers.md` is the same tool at a later commit, so it also counts the operator's documentation commits. Its "Refusals: 0" counts refusals by the git freeze hook, which was switched off. It does not count the vendor's safety refusals, which are below.
+
+## Operator actions during the run
+
+Nothing here was a message to a seat, an approval, a hint or a rerun. Each was an infrastructure action outside the room. Times are UTC on 3 Oct.
+
+| Time | Action | Why |
+|---|---|---|
+| 16:49:58 | Dispatch posted to @Coordinator | the only human message in the room |
+| 17:02–19:15 | Retried waking the seats. Fixed the Band service's PATH and shell start-up, then restarted the Band service | the seats could not start a room session: the runtime command did not resolve on a machine at load 350–520 |
+| 19:27 | The Coordinator woke on the buffered dispatch by itself | — |
+| about 19:30–20:02 | *Restart agent* in Band Desktop for Builder, Builder-Two, Checker and Adversary, one at a time; they were ready at 19:57, 19:58, 20:00 and 20:02 | the service restart had left them in an unfinished cleanup state |
+| 20:03–20:38 | Pinned the two Codex seats' sessions to `gpt-6.1-sol` (`band runtime settings`) and restarted those sessions. Five turn attempts failed in the room with "model is not supported" before the pin held (`measurements/model-pin-replay.md`) | three turns had run on `gpt-6-sol`, the old default held by older Band sessions |
+| after 20:38 | none. Later seat restarts in the room log are Band waking a seat for a message (TEAMWORK.md, glossary) | — |
+
+After the stall at 08:16 UTC on 4 Oct, the operator neither restarted, nudged nor reran anything. The run ended with the band's own cut (D-26, 19:00 UTC) and no final report. The room was downloaded on 5 Oct. The practice-run lessons that the setup commit's FACTORY.md carried (keep-alive, chunked bodies, NaN), and that the Coordinator turned into entries 9001–9003, were written before the dispatch, as was the dispatch's own fixed stack and builder split. `DISPATCH.md` is that dispatch in generic form.
 
 ## What failed, and what we changed or would change
 
@@ -197,11 +218,15 @@ Builder 28.8%, Builder-Two 28.0%, Checker 20.7%, Coordinator 3.4%.
   machine that does nothing else.
 - **Identity slips.** Twenty non-merge commits carry the repository's default identity "Dark Factory band" instead
   of a seat's. They are mostly Coordinator ledger commits made from the shared `main` checkout. One of them (fc2a0e2,
-  07:12 UTC, on the Coordinator's branch) swept stage-3 files that were in that checkout in with a ledger line, using
-  `commit -a`. It reached `main` only through a later ledger merge (757013c, 07:21 UTC), after stage 3's green receipt
+  07:12 UTC, on the Coordinator's branch) swept stage-3 files that were already staged in that checkout in with a ledger line (its tool call ran
+  only `git add ledger/status.md`). It reached `main` only through a later ledger merge (757013c, 07:21 UTC), after stage 3's green receipt
   #7 and its accepting merge (4bbf23d, 07:18 UTC), and `main`'s stage-3 tree stayed the one #7 accepted. The Coordinator
   noticed and recorded it (ledger status, *Provenance*), and from 9a7c654 onward it commits only `ledger/` paths, as
   itself. History is never rewritten. Every commit is still traceable to a room message.
+- **No final report.** The Coordinator's mandate requires one, with the spec-coverage table and the planted-fault rate. The band stalled first, so neither was produced in the run. `measurements/spec_coverage.md` gives the coverage now, measured after the run. **Fix:** the timekeeper below, and a rule that the Coordinator posts an interim report at each stage acceptance.
+- **Independence slipped once.** At 08:10 UTC on 4 Oct, the Coordinator had Builder run one of the Checker's tests. It corrected itself in the same message ("from now on don't run Checker's checker/ tests"). Builders never read the shipped tests (`tools/room_audit.py`: 0 of 1,224 tool calls). **Fix:** the Checker's `checker/` folder becomes unreadable from the builders' worktrees.
+- **The gate's bar on the shipped suites is the event's own claim, not 100%.** At stage level the gate needs the harness to report that the folder claims its stage, with no earlier suite regressing (`tools/gate.py`, `harness` step). Receipt #4 accepted stage 1 at 146/147, with one reset timeout under host load. On a quiet machine the same tree passes 147/147. **Fix:** require every shipped check to pass and rerun a flake once.
+- **The machine's own tooling reviewed seats' commits.** The operator's machine-wide Claude Code commit hook ran an automated security review on the Claude seats' commits (14 sessions, 13,633 output tokens; table above). It is environment tooling, set up before the run. **Fix:** run the factory under a clean user profile with no personal hooks.
 - **The freeze hook did not ship.** `tools/hooks/reference-transaction` would refuse any update of `main` that
   changes a stage folder without a green receipt. A replay proved that it refuses. It was never proven to accept a
   real green before the dispatch, so under our own cut rule it is switched off. `gate.py verify` reports such a merge
@@ -227,29 +252,66 @@ is an owner step, so it was not done for this entry.
 **Seats ran on the wrong model, and nobody in the factory saw it.** `tools/model_pin.py` reads each mandate's
 `Model:` line, then every turn each seat ran (seat_usage.py's readers), and exits 1 on any turn that used another
 model. It also lists room errors that reject a model. Replayed on this run, it reports exactly the three gpt-6-sol
-turns disclosed above (Builder 2,620 and 44,505 output tokens, Adversary 178). It also shows why they happened: at
-20:05 UTC both Codex seats' first gpt-6.1-sol requests failed in the room with "The 'gpt-6.1-sol' model is not
-supported when using Codex with a ChatGPT account". Run by the Checker before every gate (`model_pin.py --since
+turns disclosed above (Builder 2,620 and 44,505 output tokens, Adversary 178). It also lists the five failed turns from 20:04 to 20:38 UTC, while the operator was applying the
+pin ("The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account"). Run by the Checker before every gate (`model_pin.py --since
 <last receipt>`), it would have refused gate #1 until the pin held. The operator only found the turns at 20:40 UTC,
 from the logs.
 
 ## Standing it up
 
-1. Install Band Desktop and sign in. Create five local-agent seats named as in the table, each with its harness and
-   model. Set each runtime command to an **absolute path** (for example `/Users/you/.local/bin/claude`), give all
-   five the same working directory (the parent of your result repository), and allow them to edit files and run
-   commands without asking. Click *Test runtime* on each.
-2. Create the result repository. At its root put `README.md`, this `FACTORY.md`, `mandates/`, `tools/` (gate,
-   receipts, scans; standard-library Python 3.12) and an empty `receipts/`. Set `tools/gate.json` to your event's
-   harness command and track. Give each seat a git worktree on a branch named after it, and pin each seat's commit
-   identity.
-3. Check the layout with the event's offline check (`harness check <result> --track <track>`) and run
-   `python3 tools/gate.py verify`.
-4. Create one room and add all five seats. Confirm that each seat answers a mention and can mention back, and that
-   `band doctor` shows every seat connected **right before** dispatching.
-5. Post the task, addressed to @Coordinator: the complete specification path, the absolute result path, the
-   stage-folder rules, the stack if you want to name one, the acceptance command (`tools/gate.py`) and any cut rules
-   with absolute times. That message is the only input. The band runs to its final report on its own.
-6. After the run: download the room as `room.json`. In the Band console, first scroll the room to its very top,
-   because the export holds only the messages the page has loaded: our first download had 2,700 of 6,645. Then use
-   the room's ⋮ → Download → *Download full room transcript* (the guide calls it *Download full session*). Then run `tools/room_audit.py` and `tools/factory_numbers.py` to produce the numbers above.
+1. **Prerequisites.**
+   - Install Band Desktop and sign in.
+   - Docker must be running.
+   - You need Python 3.12 or newer, and git.
+   - Set up the event kit at `<KIT>`: `python3 -m venv .venv && .venv/bin/pip install -r harness/requirements.txt && .venv/bin/python -m playwright install chromium`.
+   - Install the Claude Code and Codex CLIs and sign in to each.
+   - Use one machine that runs nothing else. Our gate runs took 18–36 min at load 140–520, against about 5 min normally.
+2. **Seats.** In Band Desktop, create the five local-agent seats from the table.
+   - Set each one's runtime command to an absolute path, give all five the working directory `<WORKSPACE>` (the parent of the result repository), and allow edits and commands without asking.
+   - Click *Test runtime* on each right before the dispatch, not the day before.
+   - **The Codex gotcha.** Band re-sends a seat's saved model with every turn. Give each Codex seat one test turn, then run `python3 tools/model_pin.py --cwd <WORKSPACE> --since <test time>`. Fix the seat's model in Band (`band runtime settings`) until it exits 0. Our run lost three turns to this.
+3. **Result repository and seat worktrees.**
+   ```sh
+   cd <WORKSPACE> && git init -b main result && cd result
+   cp -R <FACTORY>/FACTORY.md <FACTORY>/README.md <FACTORY>/DISPATCH.md <FACTORY>/mandates <FACTORY>/tools .
+   rm -f tools/gate.json && mkdir -p receipts && touch receipts/.gitkeep
+   git add -A && git -c user.name="Factory setup" -c user.email=<SETUP-EMAIL> commit -m "Factory setup"
+   git config extensions.worktreeConfig true
+   git config --worktree user.name Checker            # the main checkout belongs to the Checker
+   for s in coordinator builder builder-two checker adversary; do
+     git worktree add -b "$s" ../result-wt/"$s" main
+     git -C ../result-wt/"$s" config --worktree user.name "$s"
+     git -C ../result-wt/"$s" config --worktree user.email <SEAT-EMAIL>
+   done
+   ```
+   A per-worktree identity avoids the run's slip, where 20 commits carried the shared default identity. `stage-1/` starts empty.
+4. **Mandates.** Put the text of `mandates/<seat>.md` into the matching seat's instructions in Band. The `Harness:` and `Model:` lines must match what the seat really runs. Never put anything about the problem into a mandate.
+5. **Gate config.** Copy `tools/gate.example.json` to `tools/gate.json` and fill every placeholder with an absolute path. `_doc` explains each key. On macOS keep `checks_out` under your home folder, because Docker must mount it. Optionally run `python3 tools/gate.py install-hook` to refuse ungated stage trees on `main`. It was off in our run.
+6. **Check lock.** At most one full harness run should happen at a time.
+   - `gate.py` takes the lock itself. It looks for the directory in this order: `gate.json` `"lock"`, then `$CHECK_LOCK`, then `$HOME/DarkFactory/.check-lock`. Always set `lock`.
+   - Every other full run goes through a small wrapper. Save this as `<WORKSPACE>/with-check-lock` and `chmod +x` it:
+     ```sh
+     #!/bin/sh
+     LOCK="${CHECK_LOCK:?set CHECK_LOCK}"; i=0
+     until mkdir "$LOCK" 2>/dev/null; do i=$((i+1)); [ "$i" -ge 540 ] && { echo "lock busy: $(cat "$LOCK/holder")" >&2; exit 75; }; sleep 5; done
+     echo "$$ $(date -u +%FT%TZ) $*" > "$LOCK/holder"
+     trap 'rm -f "$LOCK/holder"; rmdir "$LOCK"' EXIT INT TERM
+     "$@"
+     ```
+   - A gate started under the wrapper inherits the lock, because the holder PID is one of its ancestors.
+7. **The Checker's checks.** The Checker writes `checker/run_checks.py` for your problem and merges it into `main` before the first gate. Its contract:
+   - **Call.** It is called as `checker_command`, run with the clean `--checks-rev` clone as working directory. By default that is `<harness python> checker/run_checks.py --repo <clean product clone> --stage N --out <gate out>/checker`.
+   - **Its job.** It builds and starts `stage-N/` itself and runs only the checks that bind stage N. Ours keeps `checker/items.json`, which maps each work item to the first stage it binds.
+   - **Green.** The gate counts the step green only on exit 0 **and** at least one test with no failures or errors, counted from JUnit XML under `<out>/checker/` or else from a pytest summary line on stdout.
+   - **Mutation runs.** It also accepts `--stage-dir <folder>`, so `seeded_faults.py` can point it at a mutated copy.
+8. **Dry check.** Run `harness check <WORKSPACE>/result --track <track>` from `<KIT>`, then `python3 tools/gate.py verify` in the result repository. Then run `band doctor`: every seat must be connected and must answer a mention in a fresh room that holds all five seats.
+9. **Dispatch.** Fill in `DISPATCH.md` and post it as one message to @Coordinator. It is the only human input.
+10. **During the run, watch only.**
+    - Every few minutes, save the newest pages with `band room messages <ROOM> --json --page 1`, then run `python3 tools/liveness.py <pages>`. It exits 1 while the band is stalled.
+    - Run `python3 tools/model_pin.py --cwd <WORKSPACE> --since <last receipt time>`.
+    - The only allowed response is infrastructure, such as Band's *Restart agent*. Never post to the room.
+11. **After the run.**
+    - In the Band console, scroll the room to its very top first, because the export holds only the messages the page has loaded. Our first download had 2,700 of 6,645.
+    - Then use ⋮ → Download → *Download full room transcript* (the guide calls it *Download full session*) and save it as `room.json` at the repository root.
+    - On a fresh clone, run `harness check`, then `harness run --all --mode isolated`, then `gate.py verify`.
+    - Then run `tools/room_audit.py`, `tools/factory_numbers.py`, `tools/seat_usage.py` and `tools/spec_coverage.py` (commands in `tools/README.md`).
