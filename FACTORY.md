@@ -13,12 +13,12 @@ the raw outputs are in [`measurements/`](measurements/).
 | | |
 |---|---|
 | Stages reached | **1, 2 and 3**, each accepted by a green gate receipt and frozen. Stage 4 was built but never accepted before the band's own cut-off, so it is not submitted (see *What failed*) |
-| Event harness, fresh clone of `main`, isolated mode | stage-1/ claims 1, stage-2/ claims 2, stage-3/ claims 3; every folder passes every earlier suite and fails the next stage's suite (no overshoot) |
-| Gate receipts | 9 (4 green, 5 red); `python3 tools/gate.py verify` → "receipts: 9 verified (4 green, 5 red); 53 first-parent commits on main checked", "verify: ok" |
+| Event harness, fresh clone of `main`, isolated mode | stage-1/ claims 1, stage-2/ claims 2, stage-3/ claims 3. Each folder passes every earlier suite (147/147, 35/35, 6/6) and fails the next stage's suite (stage-1/ on suite 2: 0/35; stage-2/ on suite 3: 2/6; stage-3/ on suite 4: 0/5), so none overshoots (`measurements/harness-isolated/`) |
+| Gate receipts | 9 (4 green, 5 red); `python3 tools/gate.py verify` → "receipts: 9 verified (4 green, 5 red)" and "verify: ok" over every first-parent commit on `main` |
 | Human input after the dispatch | **0 messages**. The dispatch was the only human message in the room (`tools/room_audit.py`) |
 | Builder tool calls touching the shipped tests | **0** (`tools/room_audit.py`, over 1,224 builder tool calls) |
 | Wall-clock | Dispatch Sat 3 Oct 16:49:58 UTC. The Coordinator's first action came at about 19:27 UTC, because the seats could not start until then (see *What failed*). Stage 1 went green at 02:59 UTC, stage 2 at 06:09 and stage 3 at 07:18. The last commit was at 08:16 UTC |
-| Model spend | 1.46 M output tokens and 3.37 M uncached input tokens across the five seats, all on flat-rate subscriptions (table below) |
+| Model spend | 1.46 M output tokens and 3.37 M uncached input tokens (the five seats plus 14 unattributed Claude sessions in their folder; table below) |
 
 ## The idea in one paragraph
 
@@ -27,8 +27,8 @@ centre of this factory is not the builder but the **requirements ledger**. Befor
 writes every obligation in the specification as a numbered entry that quotes its source sentence. Every work item
 carries its entries. The Checker writes its own tests from those sentences, never from the tests that happened to
 ship. The Adversary attacks what was accepted, and every finding becomes a ledger entry that later work must also
-meet. Acceptance is not a seat's opinion. The Checker runs the gate, and only a green receipt for that exact stage
-tree lets a stage folder onto `main`. Checking is vendor-crossed: code written by one model family is examined by the
+meet. Acceptance is not a seat's opinion. The Checker runs the gate, and a stage folder is merged onto `main` only after a
+green receipt for that exact stage tree. Checking is vendor-crossed: code written by one model family is examined by the
 other.
 
 ## Seats
@@ -41,8 +41,10 @@ other.
 | Checker | Claude Code | claude-opus-5-5 | checks written from the specification; the gate run; interface review; the verdict; merging to `main` | edit product code, weaken a check |
 | Adversary | Codex | gpt-6.1-sol | the pre-mortem; attacks on accepted work; code review of Builder-Two's work; planted-fault measurements | edit product code, give verdicts |
 
-Every line of product code is examined by the other model family. The Checker (Claude) judges Builder's Codex work.
-The Adversary (Codex) reviews Builder-Two's Claude work before the Checker's verdict. Both families build, so this is
+By design, product code is examined by the other model family: the Checker (Claude) judges Builder's Codex work, and
+the Adversary (Codex) reviews Builder-Two's Claude work before the Checker's verdict. One exception in this run: stage
+3 was accepted while the Adversary's review of the W-10 delta was still pending (the Adversary was being interrupted by
+provider safety refusals; see *What failed*). Both families build, so this is
 not one model checking itself. **Builders build blind**: they get the specification and never the shipped tests, and
 only the Checker runs the event harness. Each seat works on its own branch in its own worktree. The Checker merges
 accepted branches into `main` without rewriting history, so every commit traces to a seat, a work item and a room
@@ -50,7 +52,7 @@ message.
 
 The mandates are in `mandates/<seat>.md`, one per seat. Each starts with its `Harness:` and `Model:` lines, says how
 the seat works, and names nothing about any particular problem. An earlier version of the same mandates ran the event's
-toy practice track first (four stages in 4 h 33 min); that run is not submitted.
+toy practice track first; that run is not submitted and its evidence is not in this repository.
 
 ## The loop, per stage
 
@@ -69,7 +71,7 @@ toy practice track first (four stages in 4 h 33 min); that run is not submitted.
    tests instead of implementing rules.
 7. **Gate.** `tools/gate.py run --stage N --rev <commit>` exports that exact commit and runs a fixed sequence,
    stopping at the first red step: the mandate and credential scan, the test-fitting scan (shipped-test literals
-   reused in product code), the event harness in isolated mode for every suite up to N (no network, the published CPU
+   reused in product code), the event harness in isolated mode for every suite up to N (no outbound network, the published CPU
    and memory limits), and the Checker's own checks. It appends a receipt to `receipts/chain.jsonl` with both
    revisions, the stage folder's git tree hash, every count and timing, and the sha256 of the previous receipt.
 8. **Verdict.** On green, the Checker merges and freezes the stage. On red, the failing entries and a reproduction
@@ -81,12 +83,12 @@ toy practice track first (four stages in 4 h 33 min); that run is not submitted.
 
 | Catch | Stage | Written by | Caught by | What happened |
 |---|---|---|---|---|
-| Duplicate token inside one export imported with 204 instead of 422 | 3 (re-gate) | Builder-Two (Claude) | Checker's checks, via the gate | GATE RED #8 at 2132717 (Checker 410/411, shipped suites all green). Builder-Two fixed it in 06d4eea (statement.py only), and GATE GREEN #9 followed **14 min 44 s** later. The shipped tests passed the broken build; only the Checker's spec-derived check saw it |
+| Duplicate token inside one export imported with 204 instead of 422 | 3 (re-gate) | Builder-Two (Claude) | Checker's checks, via the gate | GATE RED #8 at 2132717 (Checker 410/411, shipped suites all green). Builder-Two fixed it in a3f0daa (stage 3) and 06d4eea (stage 4, statement.py only in each); receipt #9 tested 06d4eea, and GATE GREEN #9 followed **14 min 44 s** later. The shipped tests passed the broken build; only the Checker's spec-derived check saw it |
 | A settlement change that contradicted an accepted decision (malformed batches 400 instead of 422, D-9) | 2 | Builder (Codex) | Coordinator, before the gate | 80c511a was reverted at the Coordinator's request (124477e). Bad work never reached the gate |
 | Four interface defects in the stage-2 screens (PF-A1 to PF-A4), then PF-A6 and PF-A7 | 2 | Builder-Two (Claude) | Adversary (Codex) code review | Each became a ledger entry, was fixed (93f3606, f220845, 7223619) and was re-reviewed. The Adversary's pinned-browser review went from 10/14 to 32/32 |
-| 50 concurrent logins slowest at 6.09 s against a 5 s requirement | 1 | Builder | Checker's checks, via the gate | GATE RED #3. Builder cut the login hashing cost (1f882ff, 86a0196), and GATE GREEN #4 followed |
+| 50 concurrent logins slowest at 6.09 s against a 5 s requirement | 1 | Builder | Checker's checks, via the gate | GATE RED #3 rejected 1f882ff, which had already bounded login cost. Builder then cut new hashes to 5,000 iterations (86a0196), and GATE GREEN #4 followed |
 | Shipped-test literals in product code | 1, 2, 4 | both builders | the test-fitting scan, via the gate | GATE RED #1, #2 and #5, and the W-11 overfit reject. The ones we traced ('-1' as a list index, '300' as the HTTP success bound) were false positives (see *What failed*); the builders reworded the code rather than add an allow-list entry |
-| Six requirements no check covered | 3 | (coverage gap) | Checker's final review | 31249e3 added checks for entries 2006/2007, 2063, 2064, 2104–2106, 2113 and 2116. All pass on accepted stage 3 |
+| Nine ledger entries no check covered | 3 | (coverage gap) | Checker's final review, after acceptance | 31249e3 added six checks covering entries 2006, 2007, 2063, 2064, 2104–2106, 2113 and 2116. All pass on accepted stage 3; they ran in the later 411-check re-gate, not in receipt #7 |
 | Snapshots lost across a stage-3 export and stage-4 import | 3 | (spec gap found while building 4) | Checker, independently of the Coordinator | Decision D-27 / entry 3046 reopened frozen stage 3 through the gate (RED #8, then GREEN #9). Because stage 4 was never accepted, `main` keeps the receipt-#7 tree of stage 3 |
 
 The heuristic counts from `tools/factory_numbers.py` over the room log are 394 seat-to-seat handoffs and 53 messages
@@ -105,10 +107,10 @@ Source: `receipts/chain.jsonl` lines 4, 6 and 7 (`python3 tools/gate.py show`). 
 checks. The Checker wrote 65 for that stage's two work items and 6 more in its final review.
 
 **Planted faults (mutation testing)** were measured only in part. On W-5 the Adversary's run killed 13 of 20 valid
-mutants (65%). One survivor exposed a real blind spot in the self-test (key generation from different entropy). It
+mutants (65%) using Builder-Two's own 38-case self-test, because the Checker had no W-5 check yet, so it measures
+the builder's self-test, not the Checker's suite. One survivor exposed a real blind spot in the self-test (key generation from different entropy). It
 was sent back as a test gap; the product was correct. Two runs on W-6 gave no valid score because the browser
-baseline was too slow or unstable on the loaded machine. We report them as null, not as a rate. On the practice track
-the same factory measured 18/20, 15/20 and 18/20 by stage.
+baseline was too slow or unstable on the loaded machine. We report them as null, not as a rate. (The practice run's mutation results are not evidenced in this repository.)
 
 ## Why this shape, and what it costs
 
@@ -119,12 +121,13 @@ the same factory measured 18/20, 15/20 and 18/20 by stage.
   of repeating them. The cost is reading the specification twice. In this run the Checker produced 22% of the output
   tokens.
 - **Acceptance by program, not by message.** A receipt is rerunnable and tamper-evident, and `gate.py verify`
-  re-proves from a clone every stage tree `main` ever held. The cost is that every acceptance runs the full harness
+  re-checks from a clone that the chain is intact and that every stage-tree change in `main`'s first-parent history
+  matches a recorded green receipt (it does not rerun the tests; the receipts record those runs). The cost is that every acceptance runs the full harness
   and the Checker's suite: about 5 minutes a gate run at normal load, and 18–36 minutes on the overloaded machine, and that a false positive in the gate costs a rewrite (see below).
 - **An adversary that attacks only accepted work** keeps rejection meaningful: findings are grounded in requirements
   and reproducible. The cost is a seat that writes no product code.
-- **Two builders on separate layers** spread the work: of the product lines added on `main`, Builder wrote 29% and
-  Builder-Two 28%. The cost is integration, which the Checker's merge-and-recheck absorbs.
+- **Two builders on separate layers** spread the work: of all lines added in `main`'s history (code, tests, ledgers and
+  copied stage folders alike), Builder accounted for 28.8% and Builder-Two 28.0%. The cost is integration, which the Checker's merge-and-recheck absorbs.
 - **Blind building** costs the builders the convenience of green tests, and removes the most common way an entry is
   disqualified: code written to the tests.
 
@@ -141,17 +144,17 @@ Tokens per seat from the dispatch to the last activity, read from the seats' own
 | Builder-Two | Claude Code | claude-opus-5-5 (364) | 730 | 1,134,229 | 81,029,978 | 382,602 |
 | Checker | Claude Code | claude-opus-5-5 (352) | 720 | 1,347,259 | 84,933,488 | 319,648 |
 | Adversary | Codex | gpt-6.1-sol (29), gpt-6-sol (1) | 1,397,124 | n/a | 35,424,000 | 157,155 |
-| Claude sessions in the seats' folder with no seat name (most likely sub-agents the seats started) | Claude Code | claude-opus-5-5 (42) | 84 | 376,688 | 919,708 | 13,633 |
+| Claude sessions in the seats' folder with no seat name (their relation to the seats is not recorded) | Claude Code | claude-opus-5-5 (42) | 84 | 376,688 | 919,708 | 13,633 |
 | **Total** | | | 3,371,926 | 3,718,598 | 338,295,673 | 1,459,552 |
 
 - **Wrong-model turns, disclosed.** Three Codex turns ran on `gpt-6-sol` instead of the mandated `gpt-6.1-sol`:
   Builder 19:57–20:02 UTC (2,620 output tokens) and 20:06–20:37 UTC (44,505), and Adversary at 20:03 UTC (178).
-  That is 47,303 output tokens, 3.2% of the run. Band sends a model with every turn, and older sessions still held the
-  old default. Every Codex session was pinned to `gpt-6.1-sol`, and every Codex turn from 20:38 UTC onward ran on it.
+  That is 47,303 output tokens, 3.2% of the run. We believe older Band sessions still held the old default model
+  (operator diagnosis, not recorded in this repository). Every Codex session was pinned to `gpt-6.1-sol`, and every Codex turn from 20:38 UTC onward ran on it.
 - **Proving against building:** the Checker and Adversary produced 476,803 output tokens and the two builders 732,790,
   a ratio of 0.65.
-- All seats ran on flat-rate Claude and ChatGPT subscription plans, with no metered API keys, so the run added no
-  per-token bill. The tokens are measured, not estimated.
+- Operator-reported: all seats ran on flat-rate Claude and ChatGPT subscription plans with no metered API keys, so the
+  run added no per-token bill. The token counts themselves are measured. The tokens are measured, not estimated.
 - **Time per stage:** stage 1 took 7 h 33 min from the Coordinator's first action to its green receipt. That
   includes three red receipts on a machine at load 140–520 (other workloads ran on it). Stage 2 took 3 h 10 min more
   and stage 3 another 1 h 9 min.
@@ -162,16 +165,17 @@ Builder 28.8%, Builder-Two 28.0%, Checker 20.7%, Coordinator 3.4%.
 
 ## What failed, and what we changed or would change
 
-- **The seats could not start for 2 h 37 min after the dispatch.** Band's background service ran with a minimal
-  PATH. Its terminal-PATH probe timed out on a machine at load 350–520, so the Claude seats could not start a room
-  session. The dispatch waited, buffered, until the Coordinator woke at about 19:27 UTC. We fixed the service's PATH
+- **The seats could not start for 2 h 37 min after the dispatch.** By the operator's diagnosis (from the Band daemon's logs, not
+  kept in this repository), Band's background service ran with a minimal PATH and its terminal-PATH probe timed out on
+  a machine at load 350–520, so the Claude seats could not start a room session. The dispatch waited, buffered, until the Coordinator woke at about 19:27 UTC. We fixed the service's PATH
   and restarted the seats with Band Desktop's *Restart agent*. That was infrastructure only: no message was posted
   to the room. **Rule now:** check the runtime commands with *Test runtime* and `band doctor` immediately before a
   dispatch, not the day before.
-- **A vendor safety filter killed the red-team seat, and nothing noticed.** At 08:11 UTC the Adversary's Codex turn
-  ended with a provider safety refusal ("flagged for possible cybersecurity risk"), most likely set off by its own
-  attack scripts. That turn held the last step of stage 4: the Adversary's review of W-12. The seats wake only on
-  messages, and every seat showed *Connected* while idle, so the band waited until its own cut-off and stage 4 was
+- **A vendor safety filter kept stopping the red-team seat, and nothing reacted.** From 04:23 to 08:11 UTC the
+  Adversary's Codex turns ended 15 times with a provider safety refusal ("flagged for possible cybersecurity risk"),
+  most likely set off by its own attack scripts. The last one, at 08:11 UTC, held the last step of stage 4: the
+  Adversary's review of W-12. The seats wake only on messages, and no seat or message acted on the refusals. The room's
+  last message is at 08:16 UTC, nothing happened before the band's own cut-off (D-26, 19:00 UTC), and stage 4 was
   never accepted. **What the factory lacks is a liveness check** on any seat holding the critical path. Fix: the
   Coordinator re-pings a seat that has been silent past a time box on a critical-path item, and reassigns the review
   (the Checker can review in the Adversary's place, with the vendor crossing waived and recorded). Attack scripts
@@ -192,9 +196,11 @@ Builder 28.8%, Builder-Two 28.0%, Checker 20.7%, Coordinator 3.4%.
   Mac. This produced RED #3 (login latency) and the one reset timeout in receipt #4. Fix: run the factory on a
   machine that does nothing else.
 - **Identity slips.** Twenty non-merge commits carry the repository's default identity "Dark Factory band" instead
-  of a seat's. They are mostly Coordinator ledger commits made from the shared `main` checkout. One of them (fc2a0e2)
-  swept stage-3 files that were already in that checkout in with a ledger line, using `commit -a`. The Coordinator
-  noticed and recorded it (ledger status, *Provenance*), and from d24f489 onward it commits only `ledger/` paths, as
+  of a seat's. They are mostly Coordinator ledger commits made from the shared `main` checkout. One of them (fc2a0e2,
+  07:12 UTC, on the Coordinator's branch) swept stage-3 files that were in that checkout in with a ledger line, using
+  `commit -a`. It reached `main` only through a later ledger merge (757013c, 07:21 UTC), after stage 3's green receipt
+  #7 and its accepting merge (4bbf23d, 07:18 UTC), and `main`'s stage-3 tree stayed the one #7 accepted. The Coordinator
+  noticed and recorded it (ledger status, *Provenance*), and from 9a7c654 onward it commits only `ledger/` paths, as
   itself. History is never rewritten. Every commit is still traceable to a room message.
 - **The freeze hook did not ship.** `tools/hooks/reference-transaction` would refuse any update of `main` that
   changes a stage folder without a green receipt. A replay proved that it refuses. It was never proven to accept a

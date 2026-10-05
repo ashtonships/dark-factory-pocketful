@@ -22,7 +22,7 @@ Only `tools/gate.py` could, and every verdict it gave, red or green, is a hash-c
 | [`receipts/chain.jsonl`](receipts/chain.jsonl) | the gate's receipts: every acceptance run, 4 green and 5 red |
 | [`tools/`](tools/) | the gate and the measurement tools |
 | [`measurements/`](measurements/) | raw output of the measurement commands quoted in FACTORY.md |
-| `room.json` | the Band room the work happened in, downloaded unchanged |
+| `room.json` | the Band room the work happened in, downloaded from the Band console (two values redacted, see `measurements/README.md`) |
 | `design/` | the three concepts per screen the factory drew before building the stage-2 UI, and the pick |
 | branches `coordinator`, `builder`, `builder-two`, `checker`, `adversary` | each seat's own branch, pushed as the seat left it. `builder` and `builder-two` hold the stage-4 work that was never accepted; `adversary` holds its attack scripts |
 | `ui-core/` | the client-side code Builder-Two developed before stage 2 existed. It is not part of any stage folder |
@@ -30,7 +30,7 @@ Only `tools/gate.py` could, and every verdict it gave, red or green, is a hash-c
 ## Check it yourself
 
 ```sh
-python3 tools/gate.py verify      # re-proves every receipt and every stage tree main ever held
+python3 tools/gate.py verify      # checks the receipt chain, and that every stage tree main held has a green receipt
 python3 tools/gate.py show        # one line per receipt: time, verdict, stage, revision, tree, reason
 cd stage-2 && docker build -t pocketful-stage-2 . && docker run --rm -p 18080:18080 -e PORT=18080 pocketful-stage-2
 # then open http://127.0.0.1:18080/
@@ -50,7 +50,7 @@ cd stage-2 && docker build -t pocketful-stage-2 . && docker run --rm -p 18080:18
   1,224 (`tools/room_audit.py`).
 - One real catch: GATE RED #8, a duplicate token accepted on import. The shipped tests passed it and the Checker's
   check failed it. Builder-Two fixed it, and GATE GREEN #9 came 14 min 44 s later.
-- Output tokens: 1.46 M across the five seats, measured from their session logs. 3.2% of them came from turns on a
+- Output tokens: 1.46 M (the five seats plus 14 unattributed Claude sessions), measured from session logs. 3.2% of them came from turns on a
   model other than the mandated one, which we disclose (FACTORY.md, *Cost and time*).
 - Stage 4 was built but not accepted before the band's own cut-off, because the Adversary seat was stopped by a
   vendor safety filter. It is not submitted. FACTORY.md, *What failed*, explains it.
