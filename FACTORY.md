@@ -250,5 +250,6 @@ from the logs.
 5. Post the task, addressed to @Coordinator: the complete specification path, the absolute result path, the
    stage-folder rules, the stack if you want to name one, the acceptance command (`tools/gate.py`) and any cut rules
    with absolute times. That message is the only input. The band runs to its final report on its own.
-6. After the run: download the room (Band console → the room's ⋮ → Download → *Download full session*) as
-   `room.json`, then run `tools/room_audit.py` and `tools/factory_numbers.py` to produce the numbers above.
+6. After the run: download the room as `room.json`. In the Band console, first scroll the room to its very top,
+   because the export holds only the messages the page has loaded: our first download had 2,700 of 6,645. Then use
+   the room's ⋮ → Download → *Download full room transcript* (the guide calls it *Download full session*). Then run `tools/room_audit.py` and `tools/factory_numbers.py` to produce the numbers above.
