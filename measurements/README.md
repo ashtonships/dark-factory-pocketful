@@ -10,6 +10,8 @@ are this repository, `room.json` and the seats' local session logs, all read-onl
 | `seat_usage.md` | `python3 tools/seat_usage.py --since 2026-10-03T16:49:58Z --until 2026-10-04T08:20:00Z --format markdown` (reads the local Claude Code and Codex session logs, so only the machine that ran the seats can reproduce it) |
 | `harness-isolated/` | the event harness, `harness run --repo <fresh clone of 02600fb> --all --mode isolated` (Sun 4 Oct 19:10 UTC): summary, and per folder the report and the counts for every suite it ran, including the next-stage probe |
 
-Until `room.json` is committed, `room_audit.md` and the room part of `factory_numbers.md` were computed from the same
-room read through Band's API (`band room messages 82d09698-5775-4fc6-aeca-0f340f4ec7be --json`, all 67 pages, 6,645
-messages, merged into one file). When `room.json` is committed, both are recomputed from it.
+
+`room.json` is the full-session download unchanged except for one value: a private e-mail address that a seat's
+`git config` call printed (2026-10-04T03:36:14Z) is replaced by `[REDACTED]`, as the participant guide allows.
+
+Session tokens of the band's own local test service (1 distinct value(s), sent with curl to 127.0.0.1 inside tool calls) are replaced by `[REDACTED]` in `room.json`: they match the harness's credential shape although they were throwaway test values.
