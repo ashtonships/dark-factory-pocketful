@@ -12,7 +12,7 @@ wrote; nothing here changes it.
 
 | | |
 |---|---|
-| **Available funds are the headline.** Total and held are secondary; held money is mauve and only mauve. ![Home](screens/home.png) | **Same screen on a phone.** One tab row under the header, the wallet card first. ![Phone home](screens/phone-home.png) |
+| **Available funds are the headline.** Total and held are secondary; held money is marked mauve. ![Home](screens/home.png) | **Same screen on a phone.** One tab row under the header, the wallet card first. ![Phone home](screens/phone-home.png) |
 | **Lost response: amber, not red.** `pay-uncertain` says "Payment result unknown. Retry with the same details." The feed is not refreshed (the server may be unreachable), and the form keeps its values. ![Uncertain](screens/pay-uncertain.png) | **Retry, recovered exactly once.** Same key and body; the 3.00 EUR "Bus" payment appears once, available falls 181.00 → 178.00 once, and both error elements are gone. ![Recovered](screens/pay-retry-recovered.png) |
 
 ## 1. Tour: every UI state the stage-2 spec names
@@ -113,7 +113,7 @@ The same files are in `ui-core/` (the work), `stage-2/ui/` and `stage-3/ui/` (th
 | `theme.css` (353 lines) | The only stylesheet. Design tokens live on `:root`: canvas, ink, primary `#136C63`, an 8 px spacing scale, 12 px corners, 44 px controls. **Each colour has one meaning:** green = success, red = refused, amber = uncertain outcome only, mauve = held money only, and no blue. Focus rings use `:focus-visible`. |
 | `pocketful-core.js` (480 lines) | Logic that does not depend on any screen, exposed as `window.PocketfulCore`: `formatAmount`, `parseAmount`, `splitShares`/`splitPreview`, `KeyRing` + `canonicalJson` (an unchanged resubmit reuses the same idempotency key and body), `classify`/`Submission` (refused vs uncertain), `LatestWins`/`loadAll` (the latest refresh wins), `TokenStore`. |
 | `app.js` (689 lines) | The screens: shell and navigation, wallet, the forms, the lists, and refresh. Built on the core. |
-| `index.html`, `requests.html`, `split.html`, `signup.html`, `login.html`, `authorizations.html` | One static page per route, with every spec `data-testid` in the markup (36 in the HTML; list items get theirs from `app.js`). |
+| `index.html`, `requests.html`, `split.html`, `signup.html`, `login.html`, `authorizations.html` | One static page per route, with every spec `data-testid` in the markup (35 in the HTML; list items get theirs from `app.js`). |
 
 [`ui-core/README.md`](../ui-core/README.md) has a table mapping each core function to the spec sentence it
 serves, and a "Behaviour readings" list for each judgement call the agents made where the spec was silent.

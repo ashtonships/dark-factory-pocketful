@@ -31,7 +31,7 @@ Only `tools/gate.py` could, and every verdict it gave, red or green, is a hash-c
 | `room.json` | the Band room the work happened in, downloaded from the Band console (two values redacted, see `measurements/README.md`) |
 | `design/` | the three concepts per screen the factory drew before building the stage-2 UI, and the pick |
 | branches `coordinator`, `builder`, `builder-two`, `checker`, `adversary` | each seat's own branch, pushed as the seat left it. `builder` and `builder-two` hold the stage-4 work that was never accepted; `adversary` holds its attack scripts |
-| `ui-core/` | the client-side code Builder-Two developed before stage 2 existed. It is not part of any stage folder |
+| `ui-core/` | the client-side code Builder-Two started before stage 2 and kept identical to `stage-2/ui` and `stage-3/ui`. It is not itself a stage folder |
 
 ## Check it yourself
 
@@ -46,7 +46,7 @@ cd stage-2 && docker build -t pocketful-stage-2 . && docker run --rm -p 18080:18
 
 | Stage | Green receipt | Revision | Stage tree | Shipped checks at the receipt (cumulative) | Shipped checks, fresh clone, quiet machine | Checker's checks | Obligations with a Checker-written check |
 |---|---|---|---|---|---|---|---|
-| 1 | #4, 2026-10-04 02:59 UTC | 57cc82e | 8f19cbfb6d7e | 146/147 (1 reset timeout at load 350) | 147/147 | 234/234 | 246/252 |
+| 1 | #4, 2026-10-04 02:59 UTC | 57cc82e | 8f19cbfb6d7e | 146/147 (1 reset timeout under host load 150–290) | 147/147 | 234/234 | 246/252 |
 | 2 | #6, 2026-10-04 06:09 UTC | bc4cc1c | ad34602f4b70 | 182/182 | 182/182 | 329/329 | 204/211 |
 | 3 | #7, 2026-10-04 07:18 UTC | 5413e25 | 276ec0a8a545 | 188/188 | 188/188 | 397/397 | 109/109 |
 
@@ -58,11 +58,16 @@ cd stage-2 && docker build -t pocketful-stage-2 . && docker run --rm -p 18080:18
   572 obligations (98%) have a check the Checker wrote from the specification. 188 checks shipped
   (`measurements/spec_coverage.md`).
 - **What the factory caught:** 5 red gate receipts, the seven catches in FACTORY.md (*How the factory catches bad work*),
-  and 40 "reject" messages followed by a commit on the same work item (a text-matching count). Cross-vendor review changed code at least 12 times (TEAMWORK.md). The
+  and 40 "reject" messages followed by a commit on the same work item (a text-matching upper bound). Five review-to-fix chains are traced message by message in TEAMWORK.md (c). The
   sharpest: GATE RED #8, a duplicate token accepted on import. The shipped tests passed it and only the Checker's
-  spec-derived check failed it. Builder-Two fixed it and GATE GREEN #9 came 14 min 44 s later. That fix was gated but
+  spec-derived check failed it. Builder-Two fixed it and GATE GREEN #9 came 14 min 44 s after RED #8. That fix was gated but
   never merged: it waited for the stage-4 gate, and the band stalled first. So `main`'s stage-3 is receipt #7's tree and
   still has this defect.
+- **Known defect on `main`, stated up front:** `stage-3/` (receipt #7's tree) accepts an import whose export repeats
+  one token. The Checker's check caught it (GATE RED #8) and Builder-Two's fix passed the gate (GREEN #9), but the fix
+  lives only on the builder branches: `git show a3f0daa -- stage-3` is the fix, and
+  `git diff main:stage-3 06d4eea:stage-3` is everything `main` lacks. Merging it would be a hand commit into a stage
+  folder after the run, so we did not.
 - Output tokens: 1.46 M (the five seats plus 14 automated commit-hook review sessions, FACTORY.md *Cost and time*), measured from session logs. 3.2% of them came from turns on a
   model other than the mandated one, which we disclose (FACTORY.md, *Cost and time*).
 - Stage 4 was built but not accepted before the band's own cut-off, because the Adversary seat was stopped by a

@@ -19,7 +19,7 @@ the raw outputs are in [`measurements/`](measurements/).
 | Spec coverage | Every one of stages 1–3's 611 specification sentences is in the ledger, and 559 of their 572 obligations (98%) have a check the Checker wrote from the specification, against 188 shipped checks (`measurements/spec_coverage.md`) |
 | Builder tool calls touching the shipped tests | **0** (`tools/room_audit.py`, over 1,224 builder tool calls) |
 | Wall-clock | Dispatch Sat 3 Oct 16:49:58 UTC. The Coordinator's first action came at about 19:27 UTC, because the seats could not start until then (see *What failed*). Stage 1 went green at 02:59 UTC, stage 2 at 06:09 and stage 3 at 07:18. The last room message was at 08:16 UTC. The band then stalled (see *What failed*), so **no final report was posted** |
-| Model spend | 1.46 M output tokens and 3.37 M uncached input tokens (the five seats plus 14 unattributed Claude sessions in their folder; table below) |
+| Model spend | 1.46 M output tokens and 3.37 M uncached input tokens (the five seats plus 14 automated commit-hook review sessions; table below) |
 
 ## The idea in one paragraph
 
@@ -104,14 +104,14 @@ table above was checked against the room by hand.
 | Checker's own checks at the green receipt | 234/234 | 329/329 | 397/397 (411/411 at the later re-gate) |
 | Checker checks per shipped check, cumulative | 1.6× | 1.8× | 2.1× |
 
-On a fresh clone tonight, on a quiet machine, the shipped suites pass 147/147, 182/182 and 188/188 (`harness run --all --mode isolated`).
+On a fresh clone of the public repository on 5 Oct (stage folders unchanged since 02600fb), on a quiet machine, the shipped suites pass 147/147, 182/182 and 188/188 (`harness run --all --mode isolated`).
 
 **Spec coverage beyond the shipped checks** (`measurements/spec_coverage.md`): stages 1–3 have 611 specification sentences. All of them are in the ledger, 39 as waivers for sentences with no behaviour. Of the 572 obligations, 559 (98%) have at least one check the Checker wrote from the specification: 246 of 252 for stage 1, 204 of 211 for stage 2 and 109 of 109 for stage 3.
 
 **Reproducing the Checker's numbers.** Rerun the Checker's suite at each receipt's `checks_rev`, not at `main`'s head. At the head, `checker/items.json` also binds W-13 (the D-27 snapshot amendment) to stage 3. That amendment is on the builder branches only, so the head suite would fail `main`'s stage-3 on those checks. Receipt #7's `checks_rev` is a48ed06, and there the suite is 397/397 on `main`'s stage-3.
 
 Source: `receipts/chain.jsonl` lines 4, 6 and 7 (`python3 tools/gate.py show`). The stage-3 suite that shipped has 6
-checks. The Checker wrote 65 for that stage's two work items and 6 more in its final review.
+checks. The Checker's suite grew by 68 checks between receipts #6 and #7, then by 14 for receipt #9: 6 from its final review and 8 for W-13.
 
 **Planted faults (mutation testing)** were measured only in part. On W-5 the Adversary's run killed 13 of 20 valid
 mutants (65%) using Builder-Two's own 38-case self-test, because the Checker had no W-5 check yet, so it measures
@@ -121,8 +121,8 @@ baseline was too slow or unstable on the loaded machine. We report them as null,
 
 ## Why this shape, and what it costs
 
-- **Ledger first** costs time before the first line of code. Stage 1's ledger covered 273 of 273 sentences (251
-  entries and 22 written waivers) and took the Coordinator about 20 minutes. In return the factory covers what the
+- **Ledger first** costs time before the first line of code. Stage 1's ledger covered 273 of 273 sentences (252
+  obligations and 21 waivers by `tools/spec_coverage.py` after the run; the Coordinator counted 251 and 22 during it) and took the Coordinator about 20 minutes. In return the factory covers what the
   shipped checks never exercise, which is where the hidden test set is decided.
 - **Tests from the specification, by a different seat and model family,** catch the builder's blind spots instead
   of repeating them. The cost is reading the specification twice. In this run the Checker produced 22% of the output
@@ -151,7 +151,7 @@ Tokens per seat from the dispatch to the last activity, read from the seats' own
 | Builder-Two | Claude Code | claude-opus-5-5 (364) | 730 | 1,134,229 | 81,029,978 | 382,602 |
 | Checker | Claude Code | claude-opus-5-5 (352) | 720 | 1,347,259 | 84,933,488 | 319,648 |
 | Adversary | Codex | gpt-6.1-sol (29), gpt-6-sol (1) | 1,397,124 | n/a | 35,424,000 | 157,155 |
-| Automated security reviews of the Claude seats' commits: 14 sessions from the operator's machine-wide Claude Code commit hook (prompt "Review this change for security vulnerabilities"), started by the seats' own commits in their worktrees. Set up before the run; no person involved | Claude Code | claude-opus-5-5 (42) | 84 | 376,688 | 919,708 | 13,633 |
+| Automated security reviews of the Claude seats' commits: 14 sessions from the operator's machine-wide Claude Code commit hook (prompt "Review this change for security vulnerabilities", identified by the operator from each session's first prompt), started by the seats' own commits in their worktrees. Set up before the run; no person involved | Claude Code | claude-opus-5-5 (42) | 84 | 376,688 | 919,708 | 13,633 |
 | **Total** | | | 3,371,926 | 3,718,598 | 338,295,673 | 1,459,552 |
 
 - **Wrong-model turns, disclosed.** Three Codex turns ran on `gpt-6-sol` instead of the mandated `gpt-6.1-sol`:
@@ -207,8 +207,8 @@ After the stall at 08:16 UTC on 4 Oct, the operator neither restarted, nudged no
   change. The builders reworded instead of adding allow-list entries, which kept the allow list empty but cost
   minutes. Fix (not applied to this repository after the run): skip subscript indexes and HTTP status-class bounds.
 - **Stage 4 was first cut too early, then reopened.** The dispatch rule was "stage 3 not accepted by Sun 04:00 → no
-  stage 4". The Coordinator applied it as a forecast at 06:10 UTC, and stage 3 was then accepted 1 h 42 min before
-  the cut time. The band noticed and reopened stage 4 itself at 07:30 UTC, under a new cut (D-26, 19:00 UTC). Lesson:
+  stage 4" (04:00 CDT, 09:00 UTC). The Coordinator applied it as a forecast at 06:10 UTC, and stage 3 was then accepted 1 h 42 min before
+  the cut time. The band noticed and reopened stage 4 itself at 07:22 UTC, under a new cut (D-26, 19:00 UTC). Lesson:
   a cut rule must be applied at its time, not forecast.
 - **Security traded for latency.** Builder tried scrypt password hashing (be618df) and reverted it 3 minutes later
   (8e1fc80) to keep the login-latency margin on the loaded machine. The Coordinator recorded this as accepted risk
@@ -222,9 +222,9 @@ After the stall at 08:16 UTC on 4 Oct, the operator neither restarted, nudged no
   only `git add ledger/status.md`). It reached `main` only through a later ledger merge (757013c, 07:21 UTC), after stage 3's green receipt
   #7 and its accepting merge (4bbf23d, 07:18 UTC), and `main`'s stage-3 tree stayed the one #7 accepted. The Coordinator
   noticed and recorded it (ledger status, *Provenance*), and from 9a7c654 onward it commits only `ledger/` paths, as
-  itself. History is never rewritten. Every commit is still traceable to a room message.
+  itself. History is never rewritten. All 47 product commits appear by sha in the room, and 19 of the 20 "Dark Factory band" commits match a Coordinator tool call (TEAMWORK.md).
 - **No final report.** The Coordinator's mandate requires one, with the spec-coverage table and the planted-fault rate. The band stalled first, so neither was produced in the run. `measurements/spec_coverage.md` gives the coverage now, measured after the run. **Fix:** the timekeeper below, and a rule that the Coordinator posts an interim report at each stage acceptance.
-- **Independence slipped once.** At 08:10 UTC on 4 Oct, the Coordinator had Builder run one of the Checker's tests. It corrected itself in the same message ("from now on don't run Checker's checker/ tests"). Builders never read the shipped tests (`tools/room_audit.py`: 0 of 1,224 tool calls). **Fix:** the Checker's `checker/` folder becomes unreadable from the builders' worktrees.
+- **Independence slipped once.** At 08:08 UTC on 4 Oct, on the Coordinator's instruction and with the Checker's command, Builder ran one W-11 check from `checker/`. The Coordinator stopped it in its next message (08:10:46: "from now on don't run Checker's checker/ tests"). At 07:54 Builder-Two had been given the Checker's W-13 tests as its acceptance and was told within the same minute not to use them, and it did not. Builders never read the shipped tests (`tools/room_audit.py`: 0 of 1,224 tool calls). **Fix:** the Checker's `checker/` folder becomes unreadable from the builders' worktrees.
 - **The gate's bar on the shipped suites is the event's own claim, not 100%.** At stage level the gate needs the harness to report that the folder claims its stage, with no earlier suite regressing (`tools/gate.py`, `harness` step). Receipt #4 accepted stage 1 at 146/147, with one reset timeout under host load. On a quiet machine the same tree passes 147/147. **Fix:** require every shipped check to pass and rerun a flake once.
 - **The machine's own tooling reviewed seats' commits.** The operator's machine-wide Claude Code commit hook ran an automated security review on the Claude seats' commits (14 sessions, 13,633 output tokens; table above). It is environment tooling, set up before the run. **Fix:** run the factory under a clean user profile with no personal hooks.
 - **The freeze hook did not ship.** `tools/hooks/reference-transaction` would refuse any update of `main` that

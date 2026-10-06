@@ -27,7 +27,7 @@ python3 -c "import json;m=json.load(open('room.json'))['messages'];u=[x for x in
 | Checker | 56 | 16.7% | 27 | 0 | 0 | 0 |
 | Adversary | 48 | 14.3% | 0 (works on branch `adversary`) | 0 | 0 | 0 |
 | Builder-Two | 38 | 11.3% | 14 | 0 | 1,834 (53.7%) | 1,976 (49.8%) |
-| **Total** | **336** | | 120 seat commits + 7 "Factory Setup" | 1,173 | 3,418 | 3,968 |
+| **Total** | **336** | | 120 seat commits + the "Factory Setup" commits | 1,173 | 3,418 | 3,968 |
 
 The seats split the work like this. Builder wrote stage 1 alone. The two builders split stages 2 and 3 about evenly.
 The Checker wrote the checks: 4,968 lines in `checker/`, plus 27 commits. The Coordinator wrote the ledger: 797 lines
@@ -123,10 +123,10 @@ EOF
   `git add ledger/status.md` only. The stage-3 files were already staged in that worktree. They are the builders'
   candidate `5413e25`: identical except 7 lines in `server.py`. Blame gives that commit 0 lines in today's `main`. It
   reached `main` only after receipt #7's merge.
-- **"Factory Setup" wrote nothing in any stage folder.** Its 7 commits are the setup before the run (`5bc84fd`:
-  mandates, tools, FACTORY.md) and 6 operator commits after the run (5 Oct: room.json, measurements, docs and two
-  new tools). Their lines are in `room.json`, `tools/`, `mandates/`, `measurements/`, `FACTORY.md`, `README.md`,
-  `.gitignore` and `receipts/` (1 line). They have 0 lines in `stage-1/`, `stage-2/` or `stage-3/`.
+- **"Factory Setup" wrote nothing in any stage folder.** Its commits are the setup before the run (`5bc84fd`:
+  mandates, tools, FACTORY.md) and the operator's commits after the run (5 Oct: room.json, measurements, docs and two
+  new tools; `git log --author='Factory Setup'`). Their lines are in `room.json`, `tools/`, `mandates/`, `measurements/`, `FACTORY.md`, `README.md`,
+  `.gitignore`, `TEAMWORK.md`, `DISPATCH.md`, `docs/` and `receipts/` (1 line). They have 0 lines in `stage-1/`, `stage-2/` or `stage-3/`.
 
 ```sh
 git log main --no-merges --author='Dark Factory band' --format='%h %s'
