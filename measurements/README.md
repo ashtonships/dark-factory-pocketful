@@ -15,7 +15,14 @@ are this repository, `room.json` and the seats' local session logs, all read-onl
 | `harness-isolated/` | the event harness, `harness run --repo <fresh clone of 02600fb> --all --mode isolated` (Sun 4 Oct 19:10 UTC): summary, and per folder the report and the counts for every suite it ran, including the next-stage probe |
 
 
-`room.json` is the full download unchanged except for two values. First, a private e-mail address that a seat's
-`git config` call printed (2026-10-04T03:36:14Z) is replaced by `[REDACTED]`, as the participant guide allows.
+`room.json` is the full console download with exactly two substitutions, each replaced by `[REDACTED]`. All
+6,645 records, their ids, order, timestamps and other metadata are unchanged.
 
-Second, the session token of the band's own local test service (1 distinct value, sent with curl to 127.0.0.1 inside tool calls) is replaced by `[REDACTED]` wherever it appears: it matches the harness's credential shape although it was a throwaway test value.
+1. **A bearer token of the band's own local test service** (one distinct value, sent with curl to 127.0.0.1 inside
+   tool calls). It matches the harness's credential shape, and the participant guide asks for credentials to be
+   redacted. It was a value of a throwaway local service from the run, not a provider key.
+2. **The operator's personal e-mail address**, which a seat's `git config` call printed (2026-10-04T03:36:14Z). The
+   guide addresses credentials, not e-mail addresses. We redacted it for privacy, and we say so here instead of
+   claiming the guide requires it.
+
+The unredacted original is kept privately by the operator.

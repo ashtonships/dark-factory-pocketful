@@ -86,7 +86,7 @@ toy practice track first; that run is not submitted and its evidence is not in t
 |---|---|---|---|---|
 | Duplicate token inside one export imported with 204 instead of 422 | 3 (re-gate) | Builder-Two (Claude) | Checker's checks, via the gate | GATE RED #8 at 2132717 (Checker 410/411, shipped suites all green). Builder-Two fixed it in a3f0daa (stage 3) and 06d4eea (stage 4, statement.py only in each); receipt #9 tested 06d4eea, and GATE GREEN #9 followed **14 min 44 s** later. The shipped tests passed the broken build; only the Checker's spec-derived check saw it. **The fix is gated but not on `main`:** the Checker held the merge for the stage-4 gate, and the band stalled before it. `main`'s stage-3 is still receipt #7's tree, which accepts a repeated token within one export |
 | A settlement change that contradicted an accepted decision (malformed batches 400 instead of 422, D-9) | 2 | Builder (Codex) | Coordinator, before the gate | 80c511a was reverted at the Coordinator's request (124477e). Bad work never reached the gate |
-| Four interface defects in the stage-2 screens (PF-A1 to PF-A4), then PF-A6 and PF-A7 | 2 | Builder-Two (Claude) | Adversary (Codex) code review | Each became a ledger entry, was fixed (93f3606, f220845, 7223619) and was re-reviewed. The Adversary's pinned-browser review went from 10/14 to 32/32 |
+| Four interface defects in the stage-2 screens (PF-A1 to PF-A4), then PF-A6 and PF-A7 | 2 | Builder-Two (Claude) | Adversary (Codex) code review | Each became a ledger entry and was fixed (93f3606, f220845, 7223619). PF-A1 to PF-A6 were re-reviewed by the Adversary, whose pinned-browser review went from 10/14 to 32/32. PF-A7 was fixed in 7223619, and Builder-Two reported its own tests plus 46/46 Adversary-authored checks passing. The Coordinator asked the Adversary to confirm with its own run (05:37 UTC), but its next turn was ended by the safety filter, so a separate Adversary retest is not established |
 | 50 concurrent logins slowest at 6.09 s against a 5 s requirement | 1 | Builder | Checker's checks, via the gate | GATE RED #3 rejected 1f882ff, which had already bounded login cost. Builder then cut new hashes to 5,000 iterations (86a0196), and GATE GREEN #4 followed |
 | Shipped-test literals in product code | 1, 2, 4 | both builders | the test-fitting scan, via the gate | GATE RED #1, #2 and #5, and the W-11 overfit reject. The ones we traced ('-1' as a list index, '300' as the HTTP success bound) were false positives (see *What failed*); the builders reworded the code rather than add an allow-list entry |
 | Nine ledger entries no check covered | 3 | (coverage gap) | Checker's final review, after acceptance | 31249e3 added six checks covering entries 2006, 2007, 2063, 2064, 2104–2106, 2113 and 2116. All pass on accepted stage 3; they ran in the later 411-check re-gate, not in receipt #7 |
@@ -159,8 +159,8 @@ Tokens per seat from the dispatch to the last activity, read from the seats' own
   That is 47,303 output tokens, 3.2% of the run. Band sends a model with every turn, and the seats' older Band sessions still held the old default model (operator diagnosis from the session settings, not recorded in this repository). The operator then pinned every Codex session to `gpt-6.1-sol` (see *Operator actions during the run*). From 20:38 UTC every Codex turn ran on it.
 - **Proving against building:** the Checker and Adversary produced 476,803 output tokens and the two builders 732,790,
   a ratio of 0.65.
-- Operator-reported: all seats ran on flat-rate Claude and ChatGPT subscription plans with no metered API keys, so the
-  run added no per-token bill. The token counts themselves are measured, not estimated.
+- The totals above cover everything in the window. That includes stage-4 candidate work, which is not submitted, and the 14 commit-hook review sessions, not only the three delivered stages.
+- Operator-reported, not verified by an invoice: all seats ran on flat-rate Claude and ChatGPT subscription plans with no metered API keys, so the run added no per-token bill. The token counts themselves are measured, not estimated. Any dollar figure for this run seen elsewhere (for example an API-equivalent estimate) is a catalogue-price estimate from a different dataset, not a cost we paid.
 - **Time per stage:** stage 1 took 7 h 33 min from the Coordinator's first action to its green receipt. That
   includes three red receipts on a machine at load 140–520 (other workloads ran on it). Stage 2 took 3 h 10 min more
   and stage 3 another 1 h 9 min.
@@ -171,7 +171,7 @@ Builder 28.8%, Builder-Two 28.0%, Checker 20.7%, Coordinator 3.4%. These are mea
 
 ## Operator actions during the run
 
-Nothing here was a message to a seat, an approval, a hint or a rerun. Each was an infrastructure action outside the room. Times are UTC on 3 Oct.
+Nothing here was a message to a seat, an approval, a hint or a rerun. Each was an infrastructure action outside the room. The participant guide does not say whether such actions are allowed during a submitted run, so we list them here for the judges to weigh, and we don't claim an exemption. Times are UTC on 3 Oct.
 
 | Time | Action | Why |
 |---|---|---|
@@ -309,7 +309,7 @@ from the logs.
 10. **During the run, watch only.**
     - Every few minutes, save the newest pages with `band room messages <ROOM> --json --page 1`, then run `python3 tools/liveness.py <pages>`. It exits 1 while the band is stalled.
     - Run `python3 tools/model_pin.py --cwd <WORKSPACE> --since <last receipt time>`.
-    - The only allowed response is infrastructure, such as Band's *Restart agent*. Never post to the room.
+    - Resolve runtime problems before the dispatch. During a submitted run, follow the organizer's input rules, and don't assume an infrastructure intervention (such as Band's *Restart agent*) is exempt. Record any intervention, its time and its effect, as *Operator actions during the run* does here. Never post to the room.
 11. **After the run.**
     - In the Band console, scroll the room to its very top first, because the export holds only the messages the page has loaded. Our first download had 2,700 of 6,645.
     - Then use ⋮ → Download → *Download full room transcript* (the guide calls it *Download full session*) and save it as `room.json` at the repository root.
